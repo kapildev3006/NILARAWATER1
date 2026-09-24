@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'settings_service.dart';
 
 class CartItem {
   final String productId;
@@ -85,7 +86,7 @@ class CartService {
   }
 
   final ValueNotifier<Map<String, CartItem>> items = ValueNotifier({});
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
 
   Future<String?> _getToken() async {
     return await FirebaseAuth.instance.currentUser?.getIdToken();

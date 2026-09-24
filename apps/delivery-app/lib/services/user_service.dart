@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'delivery_service.dart';
+import '../utils/env_config.dart';
 
 class UserProfile {
   final String id;
@@ -40,8 +41,8 @@ class UserService {
   factory UserService() => _instance;
   UserService._internal();
 
-  static String _activeBaseUrl = 'http://localhost:5000/api/v1';
-  static String get baseUrl => _activeBaseUrl;
+  static String _activeBaseUrl = '';
+  static String get baseUrl => _activeBaseUrl.isNotEmpty ? _activeBaseUrl : EnvConfig.apiUrl;
 
   final ValueNotifier<UserProfile?> currentUser = ValueNotifier(null);
   final ValueNotifier<String?> token = ValueNotifier(null);
@@ -76,10 +77,12 @@ class UserService {
 
   Future<bool> _syncWithBackend(String idToken) async {
     final urlsToTry = <String>{
-      _activeBaseUrl,
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
-        'http://10.0.2.2:5000/api/v1',
-        'http://127.0.0.1:5000/api/v1',
+      baseUrl,
+      if (EnvConfig.apiUrl.isEmpty) ...[
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+          'http://10.0.2.2:5000/api/v1',
+          'http://127.0.0.1:5000/api/v1',
+        ],
       ],
     }.toList();
 
@@ -91,7 +94,7 @@ class UserService {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $idToken',
           },
-        ).timeout(const Duration(seconds: 4));
+        ).timeout(const Duration(seconds: 15));
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body);

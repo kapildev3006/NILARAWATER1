@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { X, ExternalLink, ArrowLeft, Calendar, Pencil, Clock, MapPin, Truck } from "lucide-react";
+import { X, ExternalLink, ArrowLeft, Calendar, Pencil, Clock, MapPin, Truck, Bike } from "lucide-react";
 
-export default function SubscriptionListModal({ isOpen, onClose, filterType, selectedItem, setSelectedItem, modalMode, setModalMode, onEditClick }) {
+export default function SubscriptionListModal({ isOpen, onClose, filterType, selectedItem, setSelectedItem, modalMode, setModalMode, onEditClick, onAssignDriverClick }) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -201,6 +201,22 @@ export default function SubscriptionListModal({ isOpen, onClose, filterType, sel
                   </h4>
                   
                   <div className="space-y-4 flex-1">
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-50">
+                      <div>
+                        <span className="text-xs font-semibold text-slate-500 block">Assigned Rider</span>
+                        <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mt-0.5">
+                          <Bike className="w-3.5 h-3.5 text-teal-600" />
+                          {selectedItem.driverName && selectedItem.driverName !== 'Unassigned' ? selectedItem.driverName : 'No Rider Assigned'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => onAssignDriverClick && onAssignDriverClick(selectedItem)}
+                        className="px-3 py-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-bold transition-colors shadow-sm"
+                      >
+                        {selectedItem.driverName && selectedItem.driverName !== 'Unassigned' ? 'Change Rider' : 'Assign Rider'}
+                      </button>
+                    </div>
+
                     <div className="flex justify-between items-center pb-3 border-b border-slate-50">
                       <span className="text-xs font-semibold text-slate-500">Payment Method</span>
                       <span className="text-xs font-bold text-slate-700 uppercase">{selectedItem.paymentMethod}</span>

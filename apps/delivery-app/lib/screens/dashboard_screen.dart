@@ -9,7 +9,7 @@ import 'incentives_screen.dart';
 import 'help_support_screen.dart';
 import 'settings_preferences_screen.dart';
 import 'login_screen.dart';
-import 'new_order_screen.dart';
+import 'incoming_order_dialog.dart';
 import '../services/user_service.dart';
 import '../services/delivery_service.dart';
 import '../services/wallet_service.dart';
@@ -24,6 +24,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
   bool _isOnline = true;
+  bool _isModalShowing = false;
 
   @override
   void initState() {
@@ -31,6 +32,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     DeliveryService().isOnline.value = _isOnline;
     DeliveryService().initSocket();
     DeliveryService().fetchAvailableOrders();
+    DeliveryService().fetchTodaysDeliveries();
     WalletService.instance.fetchWalletData();
     DeliveryService().latestIncomingOrder.addListener(_handleIncomingOrderAlert);
   }
@@ -43,51 +45,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _handleIncomingOrderAlert() {
     final order = DeliveryService().latestIncomingOrder.value;
-    if (order == null || !mounted) return;
+    if (order == null || !mounted || !_isOnline) return;
 
-    final String orderIdStr = order['_id']?.toString() ?? '';
-    final String shortId = orderIdStr.length >= 6
-        ? orderIdStr.substring(orderIdStr.length - 6)
-        : orderIdStr;
+    if (_isModalShowing) return;
+    _isModalShowing = true;
 
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.delivery_dining_rounded, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("New Delivery Order Available!",
-                      style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.white)),
-                  Text(
-                    shortId.isNotEmpty ? "Order #$shortId • Tap to view" : "Tap to view and accept",
-                    style: GoogleFonts.outfit(fontSize: 12, color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFF1E9C1C),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: "VIEW",
-          textColor: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const NewOrderScreen()),
-            );
-          },
-        ),
-      ),
-    );
+    // Show rider-app style popup modal
+    IncomingOrderRequestDialog.show(context, order).then((_) {
+      _isModalShowing = false;
+      if (DeliveryService().latestIncomingOrder.value?['_id'] == order['_id']) {
+        DeliveryService().latestIncomingOrder.value = null;
+      }
+    });
   }
 
   void _onTabSelect(int index) {
@@ -130,6 +99,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   if (_isOnline) {
                     DeliveryService().initSocket();
                     DeliveryService().fetchAvailableOrders();
+                    DeliveryService().fetchTodaysDeliveries();
                   }
                 });
                 ScaffoldMessenger.of(context).showSnackBar(

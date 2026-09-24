@@ -62,6 +62,24 @@ const userSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  availability: {
+    type: String,
+    enum: ['ONLINE', 'OFFLINE', 'BUSY'],
+    default: 'ONLINE',
+    index: true
+  },
+  currentActiveDelivery: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Delivery'
+  },
+  currentActiveRoute: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'DeliveryRoute'
+  },
+  jarBalance: {
+    heldJars: { type: Number, default: 0 },
+    returnedJars: { type: Number, default: 0 }
+  },
   deliveryDetails: {
     aadharNumber: { type: String },
     aadharImage: { type: String },

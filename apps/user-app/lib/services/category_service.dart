@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/category_model.dart';
+import 'settings_service.dart';
 
 class CategoryService {
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
 
   Future<List<CategoryModel>> getCategories() async {
     try {

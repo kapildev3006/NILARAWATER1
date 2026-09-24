@@ -2,14 +2,15 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import '../utils/env_config.dart';
 
 class SettingsService {
   static final SettingsService _instance = SettingsService._internal();
   factory SettingsService() => _instance;
   SettingsService._internal();
 
-  static String activeBaseUrl = 'http://localhost:5000/api/v1';
-  static String get baseUrl => activeBaseUrl;
+  static String activeBaseUrl = '';
+  static String get baseUrl => activeBaseUrl.isNotEmpty ? activeBaseUrl : EnvConfig.apiUrl;
 
   static final List<Map<String, dynamic>> defaultSubscriptionPlans = [
     {
@@ -104,10 +105,12 @@ class SettingsService {
     } catch (_) {}
 
     final urlsToTry = <String>{
-      '$activeBaseUrl/settings',
-      'http://localhost:5000/api/v1/settings',
-      'http://10.0.2.2:5000/api/v1/settings',
-      'http://192.168.1.33:5000/api/v1/settings',
+      '$baseUrl/settings',
+      if (EnvConfig.apiUrl.isEmpty) ...[
+        'http://localhost:5000/api/v1/settings',
+        'http://10.0.2.2:5000/api/v1/settings',
+        'http://127.0.0.1:5000/api/v1/settings',
+      ],
     };
 
     for (final urlStr in urlsToTry) {
@@ -118,7 +121,7 @@ class SettingsService {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
           },
-        ).timeout(const Duration(seconds: 4));
+        ).timeout(const Duration(seconds: 12));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);

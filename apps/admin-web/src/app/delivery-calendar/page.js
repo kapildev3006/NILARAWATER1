@@ -24,7 +24,7 @@ export default function DeliveryCalendarPage() {
         setLoading(true);
         const [delRes, setRes] = await Promise.all([
           fetchWithAuth("/admin/delivery-schedule?date=All"),
-          fetch("http://localhost:5000/api/v1/settings").then(res => res.json())
+          fetchWithAuth("/settings")
         ]);
 
         if (delRes.success) {

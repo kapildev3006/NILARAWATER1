@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/splash_screen.dart';
 import 'screens/policies/privacy_policy_screen.dart';
 import 'screens/policies/return_refund_policy_screen.dart';
 import 'screens/policies/family_policy_screen.dart';
 import 'services/cart_service.dart';
+import 'services/fcm_service.dart';
+import 'utils/env_config.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await EnvConfig.load();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("Handling background FCM message: ${message.messageId}");
+}
 
 final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -90,14 +101,26 @@ void main() async {
   );
 
   try {
+    await EnvConfig.load();
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     
+    // Register background message handler for when app is killed or minimized
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+    // Initialize FCM notifications if already logged in, or listen for login
+    if (FirebaseAuth.instance.currentUser != null) {
+      FcmService().initPushNotifications();
+    }
+    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      if (user != null) {
+        FcmService().initPushNotifications();
+      }
+    });
+
     // Load cart data from local storage
     await CartService().loadCart();
-    
-    // Notification request moved to login flow
   } catch (e) {
     debugPrint("Init failed: $e");
   }

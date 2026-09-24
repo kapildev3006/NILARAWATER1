@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, ExternalLink, ArrowLeft, MapPin, Package, CreditCard, Clock, Phone, User } from "lucide-react";
-export default function OrdersListModal({ isOpen, onClose, filterType, selectedOrder, setSelectedOrder, modalMode, ordersData = [] }) {
+import { X, ExternalLink, ArrowLeft, MapPin, Package, CreditCard, Clock, Phone, User, Bike, Send } from "lucide-react";
+export default function OrdersListModal({ isOpen, onClose, filterType, selectedOrder, setSelectedOrder, modalMode, ordersData = [], onAcceptAndDispatch }) {
   // Prevent scrolling on body when modal is open
   useEffect(() => {
     if (isOpen) {
@@ -232,13 +232,33 @@ export default function OrdersListModal({ isOpen, onClose, filterType, selectedO
         </div>
         
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-white/50 flex justify-end">
-          <button 
-            onClick={onClose}
-            className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-xl transition-colors shadow-sm"
-          >
-            Close
-          </button>
+        <div className="px-6 py-4 border-t border-slate-100 bg-white/50 flex items-center justify-between">
+          <div>
+            {selectedOrder && selectedOrder.status === 'Pending' && (
+              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200 flex items-center">
+                <Clock className="w-3.5 h-3.5 mr-1.5 text-amber-600" />
+                Awaiting Admin Acceptance
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={onClose}
+              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-xl transition-colors shadow-sm"
+            >
+              Close
+            </button>
+
+            {selectedOrder && selectedOrder.status === 'Pending' && onAcceptAndDispatch && (
+              <button 
+                onClick={() => onAcceptAndDispatch(selectedOrder.raw?._id || selectedOrder.id)}
+                className="flex items-center px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl transition-colors shadow-lg shadow-emerald-500/20"
+              >
+                <Bike className="w-4 h-4 mr-2" />
+                Accept & Dispatch to All Riders
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

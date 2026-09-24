@@ -16,7 +16,8 @@ export default function LiveDeliveriesListModal({ isOpen, onClose, filterType, s
   const handleMarkDelivered = async (item) => {
     setIsMarking(true);
     try {
-      const res = await fetch("http://localhost:5000/api/v1/admin/live-deliveries/mark-delivered", {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+      const res = await fetch(`${apiBase}/admin/live-deliveries/mark-delivered`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

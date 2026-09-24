@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'settings_service.dart';
 
 class BulkOrderService {
   static final BulkOrderService _instance = BulkOrderService._internal();
   factory BulkOrderService() => _instance;
   BulkOrderService._internal();
 
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
 
   final ValueNotifier<List<dynamic>> myBulkOrders = ValueNotifier([]);
 
@@ -115,6 +116,33 @@ class BulkOrderService {
       return false;
     } catch (e) {
       debugPrint('Error paying advance: $e');
+      return false;
+    }
+  }
+
+  Future<bool> approveQuote(String orderId) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+      
+      final token = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/bulk-orders/$orderId/approve-quote'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        await fetchMyBulkOrders();
+        return true;
+      }
+      
+      debugPrint('Approve quote failed: ${response.statusCode} - ${response.body}');
+      return false;
+    } catch (e) {
+      debugPrint('Error approving quote: $e');
       return false;
     }
   }

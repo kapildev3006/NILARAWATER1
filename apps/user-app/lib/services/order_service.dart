@@ -58,7 +58,7 @@ class OrderService {
     _startPolling();
   }
 
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
 
   final ValueNotifier<List<Order>> orders = ValueNotifier([]);
   Timer? _pollingTimer;

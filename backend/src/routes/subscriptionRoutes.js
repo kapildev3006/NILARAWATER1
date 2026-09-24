@@ -15,6 +15,7 @@ router.patch('/:id/preferences', requireAuth, subscriptionController.updatePrefe
 // Admin routes
 router.get('/', requireAuth, requireRole('admin'), subscriptionController.getAllSubscriptions);
 router.patch('/:id/status', requireAuth, requireRole('admin'), subscriptionController.updateSubscriptionStatus);
+router.patch('/:id/assign-driver', requireAuth, requireRole('admin'), subscriptionController.assignDeliveryPartner);
 
 // Also let users cancel/suspend their own subscriptions? Usually users can pause/cancel
 // We can use the same route or a different one. Let's keep it simple: users can't cancel right now, they have to contact admin, OR we just let them. The requirement says "allow admin to perform operations".

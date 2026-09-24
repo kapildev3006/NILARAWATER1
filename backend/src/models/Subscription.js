@@ -6,6 +6,11 @@ const subscriptionSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  deliveryPartner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    index: true,
+  },
   planName: {
     type: String,
     required: true,

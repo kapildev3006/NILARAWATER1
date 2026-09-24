@@ -3,6 +3,9 @@ const router = express.Router();
 const { requireAuth } = require('../middlewares/authMiddleware');
 const notificationController = require('../controllers/notificationController');
 
+// Push diagnostic / testing endpoint
+router.post('/test-push', notificationController.testPush);
+
 router.use(requireAuth);
 
 router.get('/', notificationController.getNotifications);

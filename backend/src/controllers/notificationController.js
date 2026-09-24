@@ -134,3 +134,34 @@ exports.createNotification = async (req, res, next) => {
     next(error);
   }
 };
+
+const { sendPushNotification } = require('../services/notificationService');
+
+exports.testPush = async (req, res, next) => {
+  try {
+    const { token, tokens, userId, title, body, data } = req.body;
+    
+    const targetTokens = tokens || (token ? [token] : []);
+    const pushTitle = title || 'Nilara Test Push Notification 🌊';
+    const pushBody = body || 'FCM push notifications are active and working on your device!';
+
+    const result = await sendPushNotification({
+      userId,
+      tokens: targetTokens,
+      title: pushTitle,
+      body: pushBody,
+      data: data || { test: 'true', timestamp: new Date().toISOString() },
+      type: 'system',
+      saveToDb: true
+    });
+
+    res.status(200).json({
+      success: result.success,
+      message: 'Push notification test dispatched',
+      result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

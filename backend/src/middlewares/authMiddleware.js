@@ -40,11 +40,14 @@ const requireAuth = async (req, res, next) => {
     // 2. Fallback to Firebase Auth
     let decodedToken;
     try {
+      if (!auth) {
+        throw new Error('Firebase Admin SDK is not initialized. Please configure FIREBASE_SERVICE_ACCOUNT environment variable on Render.');
+      }
       decodedToken = await auth.verifyIdToken(idToken);
     } catch (firebaseError) {
       return res.status(401).json({
         success: false,
-        error: { code: 'INVALID_TOKEN', message: 'The provided token is expired or invalid' },
+        error: { code: 'INVALID_TOKEN', message: firebaseError.message || 'The provided token is expired or invalid' },
         requestId: req.requestId
       });
     }

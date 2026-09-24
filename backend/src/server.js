@@ -33,12 +33,10 @@ const app = express();
 const httpServer = createServer(app);
 
 // ── Proxy Trust ──────────────────────────────────────────────────────────
-// Do NOT set trust proxy unless behind a known reverse proxy/load balancer.
-// Incorrect trust proxy allows IP spoofing via X-Forwarded-For.
-// For production behind Nginx/ALB, set to the exact hop count or IP range, e.g.:
-//   app.set('trust proxy', 1);
-//   app.set('trust proxy', 'loopback, 10.0.0.0/8');
-// For local development, leave unset.
+// When behind reverse proxies like Render, Cloudflare, or AWS ALB:
+if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+  app.set('trust proxy', 1);
+}
 // ─────────────────────────────────────────────────────────────────────────
 
 // ── CORS ─────────────────────────────────────────────────────────────────

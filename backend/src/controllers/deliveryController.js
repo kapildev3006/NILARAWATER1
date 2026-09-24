@@ -1,7 +1,13 @@
 const Order = require('../models/Order');
+const Delivery = require('../models/Delivery');
+const DeliveryRoute = require('../models/DeliveryRoute');
+const Subscription = require('../models/Subscription');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
 const { evaluateIncentivesForPartner } = require('./incentiveController');
+const { acceptNormalOrder, rejectNormalOrder } = require('../services/dispatchService');
+const { batchDeliveriesIntoRoutes } = require('../services/subscriptionBatchService');
+const { notifyCustomerOrderStatus, notifyCustomerDriverAssigned } = require('../services/notificationService');
 
 const getAvailableOrders = async (req, res, next) => {
   try {
@@ -47,19 +53,33 @@ const acceptOrder = async (req, res, next) => {
     // Find an order that isn't already assigned
     const order = await Order.findOneAndUpdate(
       { _id: orderId, deliveryPartner: { $exists: false }, status: { $in: ['confirmed', 'preparing', 'ready_for_pickup'] } },
-      { deliveryPartner: partnerId },
+      { deliveryPartner: partnerId, status: 'out_for_delivery', outForDeliveryAt: new Date() },
       { new: true }
     );
     
     if (!order) {
-      const err = new Error('Order is no longer available or not found');
+      const err = new Error('Order is no longer available or already claimed by another partner');
       err.statusCode = 409;
       err.code = 'NOT_AVAILABLE';
       throw err;
     }
-    
-    req.app.get('io').to(`order_${orderId}`).emit('delivery_assigned', { partnerId });
-    req.app.get('io').to(`user_${order.user}`).emit('delivery_assigned', { partnerId });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`order_${orderId}`).emit('delivery_assigned', { partnerId });
+      io.to(`user_${order.user}`).emit('delivery_assigned', { partnerId, orderId });
+      io.to('admin_room').emit('order_status_updated', { orderId: order._id, status: 'out_for_delivery', partnerId });
+      // Notify all delivery partners that this order was claimed so popups dismiss
+      io.to('delivery_room').emit('order_claimed', {
+        orderId: order._id.toString(),
+        claimedBy: partnerId
+      });
+    }
+
+    // Send push notification to customer
+    notifyCustomerOrderStatus(order, 'out_for_delivery').catch(err => {
+      console.error('[DeliveryController] Error pushing order status notification:', err.message);
+    });
     
     res.status(200).json({
       success: true,
@@ -124,6 +144,11 @@ const updateDeliveryStatus = async (req, res, next) => {
     
     req.app.get('io').to(`user_${order.user}`).emit('order_status_updated', { orderId: order._id, status });
     req.app.get('io').to(`admin_room`).emit('order_status_updated', { orderId: order._id, status });
+
+    // Send push notification to customer
+    notifyCustomerOrderStatus(order, status).catch(err => {
+      console.error('[DeliveryController] Error pushing order status notification:', err.message);
+    });
     
     res.status(200).json({
       success: true,
@@ -417,6 +442,737 @@ const getMyOrders = async (req, res, next) => {
   }
 };
 
+const getTodaysDeliveries = async (req, res, next) => {
+  try {
+    const partnerId = req.auth.userId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // 1. Fetch active subscriptions assigned to this partner
+    const subscriptions = await Subscription.find({
+      deliveryPartner: partnerId,
+      status: { $in: ['Active', 'Pending'] }
+    })
+      .populate('user', 'displayName phone email')
+      .lean();
+
+    const todaySubscriptionDeliveries = [];
+
+    subscriptions.forEach(sub => {
+      const start = new Date(sub.startDate);
+      start.setHours(0, 0, 0, 0);
+
+      // Has not started yet
+      if (start > today) return;
+
+      // Has ended
+      if (sub.endDate) {
+        const end = new Date(sub.endDate);
+        end.setHours(23, 59, 59, 999);
+        if (today > end) return;
+      }
+
+      let isDue = false;
+      const diffTime = Math.abs(today - start);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      switch (sub.frequency) {
+        case 'Daily':
+          isDue = true;
+          break;
+        case 'Alternate':
+        case 'Alternate Days':
+          isDue = diffDays % 2 === 0;
+          break;
+        case 'Weekly':
+          isDue = start.getDay() === today.getDay();
+          break;
+        case 'Monthly':
+          isDue = start.getDate() === today.getDate();
+          break;
+        default:
+          isDue = true;
+      }
+
+      // Check skipped
+      let isSkipped = false;
+      if (sub.skippedDeliveries && sub.skippedDeliveries.length > 0) {
+        isSkipped = sub.skippedDeliveries.some(skippedDate => {
+          const sd = new Date(skippedDate);
+          sd.setHours(0, 0, 0, 0);
+          return sd.getTime() === today.getTime();
+        });
+      }
+
+      if (isDue && !isSkipped) {
+        // Check if completed today
+        const isCompletedToday = sub.completedDeliveries && sub.completedDeliveries.some(compDate => {
+          const cd = new Date(compDate);
+          cd.setHours(0, 0, 0, 0);
+          return cd.getTime() === today.getTime();
+        });
+
+        const address = sub.address || {};
+        const fullAddress = address.apartment
+          ? `${address.apartment}, ${address.street || ''} ${address.city || ''}`
+          : (address.street || address.formattedAddress || 'Customer Address');
+
+        todaySubscriptionDeliveries.push({
+          id: `sub_${sub._id}`,
+          subscriptionId: sub._id,
+          type: 'subscription',
+          customerName: sub.user?.displayName || 'Subscriber',
+          customerPhone: sub.user?.phone || '',
+          address: fullAddress,
+          rawAddress: address,
+          items: `${sub.quantity}x ${sub.productName}`,
+          quantity: sub.quantity,
+          productName: sub.productName,
+          planName: sub.planName,
+          frequency: sub.frequency,
+          timeWindow: sub.deliveryTime || 'Standard (6 AM - 9 AM)',
+          instructions: sub.specialInstructions || '',
+          leaveAtDoor: sub.leaveAtDoor || false,
+          callBeforeDelivery: sub.callBeforeDelivery || false,
+          paymentMethod: sub.paymentMethod || 'Prepaid',
+          price: sub.price,
+          status: isCompletedToday ? 'delivered' : 'pending',
+          isDeliveredToday: !!isCompletedToday,
+          earning: 20 // Rs 20 earning per drop
+        });
+      }
+    });
+
+    // 2. Fetch one-time assigned regular orders for today
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const orders = await Order.find({
+      deliveryPartner: partnerId,
+      $or: [
+        { status: { $in: ['confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery'] } },
+        { status: 'delivered', deliveredAt: { $gte: today, $lt: tomorrow } }
+      ]
+    })
+      .populate('user', 'displayName phone')
+      .lean();
+
+    const todayOrderDeliveries = orders.map(order => {
+      const addr = order.deliveryAddressSnapshot || {};
+      const fullAddr = `${addr.addressLine1 || ''} ${addr.addressLine2 || ''}, ${addr.city || ''}`.trim();
+      const feeRupees = order.deliveryFeePaise > 0 ? (order.deliveryFeePaise / 100) : 20;
+
+      return {
+        id: `ord_${order._id}`,
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        type: 'order',
+        customerName: order.user?.displayName || addr.recipientName || 'Customer',
+        customerPhone: order.user?.phone || addr.phone || '',
+        address: fullAddr,
+        rawAddress: addr,
+        items: `${order.items?.length || 0} items (${order.items?.map(i => i.name).join(', ')})`,
+        timeWindow: order.deliveryTimePref || 'Instant Delivery',
+        instructions: order.customerNotes || '',
+        status: order.status,
+        isDeliveredToday: order.status === 'delivered',
+        earning: feeRupees,
+        totalPaise: order.totalPaise,
+        paymentMethod: order.paymentMethod
+      };
+    });
+
+    const totalCount = todaySubscriptionDeliveries.length + todayOrderDeliveries.length;
+    const completedCount = todaySubscriptionDeliveries.filter(d => d.isDeliveredToday).length +
+      todayOrderDeliveries.filter(d => d.isDeliveredToday).length;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        subscriptions: todaySubscriptionDeliveries,
+        orders: todayOrderDeliveries,
+        all: [...todaySubscriptionDeliveries, ...todayOrderDeliveries],
+        summary: {
+          total: totalCount,
+          completed: completedCount,
+          pending: totalCount - completedCount
+        }
+      },
+      requestId: req.requestId
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const markSubscriptionDelivered = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+
+    const sub = await Subscription.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!sub) {
+      return res.status(404).json({ success: false, message: 'Subscription not found or not assigned to you' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const alreadyMarked = sub.completedDeliveries && sub.completedDeliveries.some(d => {
+      const sd = new Date(d);
+      sd.setHours(0, 0, 0, 0);
+      return sd.getTime() === today.getTime();
+    });
+
+    if (alreadyMarked) {
+      return res.status(400).json({ success: false, message: 'Delivery already marked as completed for today' });
+    }
+
+    sub.completedDeliveries = sub.completedDeliveries || [];
+    sub.completedDeliveries.push(today);
+    await sub.save();
+
+    // Credit driver wallet with delivery fee
+    const feeRupees = 20; // Rs 20 per daily subscription drop
+    const user = await User.findById(partnerId);
+    if (user) {
+      user.walletBalance = (user.walletBalance || 0) + feeRupees;
+      await user.save();
+
+      await Transaction.create({
+        user: partnerId,
+        type: 'credit',
+        amount: feeRupees,
+        description: `Daily Delivery for Subscription #${sub.planName} (${sub.productName})`
+      });
+    }
+
+    // Evaluate incentives
+    await evaluateIncentivesForPartner(partnerId, req.app.get('io'));
+
+    // Emit socket events
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin_room').emit('subscription_delivery_completed', {
+        subscriptionId: sub._id,
+        partnerId,
+        date: today
+      });
+      io.to(`user_${sub.user}`).emit('daily_delivery_completed', {
+        subscriptionId: sub._id,
+        date: today,
+        productName: sub.productName
+      });
+      io.to(`user_${partnerId}`).emit('wallet_updated', {
+        walletBalance: user ? user.walletBalance : undefined
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Daily delivery marked as completed successfully',
+      data: {
+        subscriptionId: sub._id,
+        completedAt: today,
+        earnedRupees: feeRupees
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ==========================================
+// NORMAL ORDER STEP-BY-STEP PROGRESSION
+// ==========================================
+
+const respondToOrderRequest = async (req, res, next) => {
+  try {
+    const { orderId, action } = req.body;
+    const partnerId = req.auth.userId;
+
+    if (!orderId || !action) {
+      return res.status(400).json({ success: false, message: 'orderId and action (ACCEPT or REJECT) are required' });
+    }
+
+    if (action.toUpperCase() === 'ACCEPT') {
+      const result = await acceptNormalOrder(orderId, partnerId, req.app.get('io'));
+      if (!result.success) {
+        return res.status(409).json(result);
+      }
+      return res.status(200).json(result);
+    } else {
+      const result = await rejectNormalOrder(orderId, partnerId, req.app.get('io'));
+      return res.status(200).json(result);
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
+const arrivedAtPickup = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+
+    const order = await Order.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found or not assigned to you' });
+    }
+
+    order.deliveryStatus = 'ARRIVED_AT_PICKUP';
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: 'ARRIVED_AT_PICKUP',
+      timestamp: new Date(),
+      changedBy: 'DRIVER',
+      notes: 'Driver arrived at pickup warehouse'
+    });
+    await order.save();
+
+    await Delivery.updateOne(
+      { orderId: order._id },
+      { deliveryStatus: 'ARRIVED_AT_PICKUP', arrivedAtPickupAt: new Date() }
+    );
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user}`).emit('delivery_step_updated', { orderId: order._id, step: 'ARRIVED_AT_PICKUP' });
+      io.to('admin_room').emit('delivery_step_updated', { orderId: order._id, step: 'ARRIVED_AT_PICKUP' });
+    }
+
+    res.status(200).json({ success: true, message: 'Status updated: Arrived at pickup', data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const confirmPickup = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+
+    const order = await Order.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found or not assigned to you' });
+    }
+
+    const now = new Date();
+    order.deliveryStatus = 'OUT_FOR_DELIVERY';
+    order.orderStatus = 'PROCESSING';
+    order.status = 'out_for_delivery';
+    order.outForDeliveryAt = now;
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: 'OUT_FOR_DELIVERY',
+      timestamp: now,
+      changedBy: 'DRIVER',
+      notes: 'Order picked up from warehouse and out for delivery'
+    });
+    await order.save();
+
+    await Delivery.updateOne(
+      { orderId: order._id },
+      { deliveryStatus: 'OUT_FOR_DELIVERY', pickedUpAt: now }
+    );
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user}`).emit('order_status_updated', { orderId: order._id, status: 'out_for_delivery', deliveryStatus: 'OUT_FOR_DELIVERY' });
+      io.to('admin_room').emit('order_status_updated', { orderId: order._id, status: 'out_for_delivery', deliveryStatus: 'OUT_FOR_DELIVERY' });
+    }
+
+    notifyCustomerOrderStatus(order, 'out_for_delivery').catch(err => {
+      console.error('[DeliveryController] Error pushing out_for_delivery notification:', err.message);
+    });
+
+    res.status(200).json({ success: true, message: 'Order picked up and out for delivery', data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const arrivedAtCustomer = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+
+    const order = await Order.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found or not assigned to you' });
+    }
+
+    order.deliveryStatus = 'ARRIVED_AT_CUSTOMER';
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: 'ARRIVED_AT_CUSTOMER',
+      timestamp: new Date(),
+      changedBy: 'DRIVER',
+      notes: 'Driver arrived at customer location'
+    });
+    await order.save();
+
+    await Delivery.updateOne(
+      { orderId: order._id },
+      { deliveryStatus: 'ARRIVED_AT_CUSTOMER', arrivedAtCustomerAt: new Date() }
+    );
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user}`).emit('delivery_step_updated', { orderId: order._id, step: 'ARRIVED_AT_CUSTOMER' });
+      io.to('admin_room').emit('delivery_step_updated', { orderId: order._id, step: 'ARRIVED_AT_CUSTOMER' });
+    }
+
+    res.status(200).json({ success: true, message: 'Driver arrived at customer location', data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const completeDeliveryStep = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+    const { jarsDelivered = 0, emptyJarsCollected = 0 } = req.body;
+
+    const order = await Order.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found or not assigned to you' });
+    }
+
+    const now = new Date();
+    order.deliveryStatus = 'DELIVERED';
+    order.orderStatus = 'COMPLETED';
+    order.status = 'delivered';
+    order.deliveredAt = now;
+    order.jarsDelivered = Number(jarsDelivered);
+    order.emptyJarsCollected = Number(emptyJarsCollected);
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: 'DELIVERED',
+      timestamp: now,
+      changedBy: 'DRIVER',
+      notes: `Delivered: ${jarsDelivered} jars, Collected: ${emptyJarsCollected} empty jars`
+    });
+    await order.save();
+
+    await Delivery.updateOne(
+      { orderId: order._id },
+      {
+        deliveryStatus: 'DELIVERED',
+        deliveredAt: now,
+        jarsDelivered: Number(jarsDelivered),
+        emptyJarsCollected: Number(emptyJarsCollected)
+      }
+    );
+
+    // Update Customer Returnable Jar Balance
+    if (order.user) {
+      const customer = await User.findById(order.user);
+      if (customer) {
+        if (!customer.jarBalance) customer.jarBalance = { heldJars: 0, returnedJars: 0 };
+        customer.jarBalance.heldJars = Math.max(0, (customer.jarBalance.heldJars || 0) + Number(jarsDelivered) - Number(emptyJarsCollected));
+        customer.jarBalance.returnedJars = (customer.jarBalance.returnedJars || 0) + Number(emptyJarsCollected);
+        await customer.save();
+      }
+    }
+
+    // Credit driver earnings
+    const feeRupees = order.deliveryFeePaise > 0 ? (order.deliveryFeePaise / 100) : 20;
+    const driver = await User.findById(partnerId);
+    if (driver) {
+      driver.walletBalance = (driver.walletBalance || 0) + feeRupees;
+      driver.availability = 'ONLINE'; // Free up driver
+      driver.currentActiveDelivery = null;
+      await driver.save();
+
+      await Transaction.create({
+        user: partnerId,
+        type: 'credit',
+        amount: feeRupees,
+        order: order._id,
+        description: `Earning for Delivery #${order.orderNumber}`
+      });
+    }
+
+    await evaluateIncentivesForPartner(partnerId, req.app.get('io'));
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user}`).emit('order_status_updated', {
+        orderId: order._id,
+        status: 'delivered',
+        deliveryStatus: 'DELIVERED',
+        jarsDelivered,
+        emptyJarsCollected
+      });
+      io.to('admin_room').emit('order_status_updated', {
+        orderId: order._id,
+        status: 'delivered',
+        deliveryStatus: 'DELIVERED'
+      });
+      io.to(`user_${partnerId}`).emit('wallet_updated', {
+        walletBalance: driver ? driver.walletBalance : undefined
+      });
+    }
+
+    notifyCustomerOrderStatus(order, 'delivered').catch(err => {
+      console.error('[DeliveryController] Error pushing delivered notification:', err.message);
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Delivery successfully completed',
+      data: {
+        orderId: order._id,
+        earnedRupees: feeRupees,
+        jarsDelivered,
+        emptyJarsCollected
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const markCustomerUnavailable = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+    const { reason = 'Customer not reachable' } = req.body;
+
+    const order = await Order.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found or not assigned to you' });
+    }
+
+    order.deliveryStatus = 'CUSTOMER_UNAVAILABLE';
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: 'CUSTOMER_UNAVAILABLE',
+      timestamp: new Date(),
+      changedBy: 'DRIVER',
+      notes: reason
+    });
+    await order.save();
+
+    await Delivery.updateOne(
+      { orderId: order._id },
+      { deliveryStatus: 'CUSTOMER_UNAVAILABLE', failedAt: new Date(), failureReason: reason }
+    );
+
+    // Free up driver
+    const driver = await User.findById(partnerId);
+    if (driver) {
+      driver.availability = 'ONLINE';
+      driver.currentActiveDelivery = null;
+      await driver.save();
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user}`).emit('delivery_step_updated', { orderId: order._id, step: 'CUSTOMER_UNAVAILABLE', reason });
+      io.to('admin_room').emit('delivery_step_updated', { orderId: order._id, step: 'CUSTOMER_UNAVAILABLE', reason });
+    }
+
+    res.status(200).json({ success: true, message: 'Delivery marked as customer unavailable', data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ==========================================
+// SUBSCRIPTION ROUTE PROGRESSION
+// ==========================================
+
+const getMyRoutes = async (req, res, next) => {
+  try {
+    const partnerId = req.auth.userId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Ensure today's schedule is generated and batched
+    await batchDeliveriesIntoRoutes(today, req.app.get('io'));
+
+    const routes = await DeliveryRoute.find({
+      deliveryPartner: partnerId,
+      date: { $gte: today, $lt: tomorrow }
+    })
+      .populate({
+        path: 'deliveries',
+        populate: { path: 'customer', select: 'displayName phone email' }
+      })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      data: routes
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const startRoute = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partnerId = req.auth.userId;
+
+    const route = await DeliveryRoute.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!route) {
+      return res.status(404).json({ success: false, message: 'Route not found or not assigned to you' });
+    }
+
+    route.status = 'STARTED';
+    route.startedAt = new Date();
+    route.statusHistory = route.statusHistory || [];
+    route.statusHistory.push({
+      status: 'STARTED',
+      timestamp: new Date(),
+      changedBy: 'DRIVER',
+      notes: 'Driver started subscription delivery route'
+    });
+    await route.save();
+
+    // Mark driver BUSY
+    await User.updateOne({ _id: partnerId }, { availability: 'BUSY', currentActiveRoute: route._id });
+
+    // Mark first stop OUT_FOR_DELIVERY
+    if (route.deliveries && route.deliveries.length > 0) {
+      await Delivery.updateOne(
+        { _id: route.deliveries[0] },
+        { deliveryStatus: 'OUT_FOR_DELIVERY' }
+      );
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin_room').emit('route_status_updated', { routeId: route._id, status: 'STARTED' });
+    }
+
+    res.status(200).json({ success: true, message: 'Route started successfully', data: route });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const updateRouteStopStatus = async (req, res, next) => {
+  try {
+    const { id, stopId } = req.params;
+    const partnerId = req.auth.userId;
+    const { status, jarsDelivered = 0, emptyJarsCollected = 0, failureReason } = req.body;
+
+    const route = await DeliveryRoute.findOne({ _id: id, deliveryPartner: partnerId });
+    if (!route) {
+      return res.status(404).json({ success: false, message: 'Route not found or not assigned to you' });
+    }
+
+    const delivery = await Delivery.findOne({ _id: stopId, routeId: route._id });
+    if (!delivery) {
+      return res.status(404).json({ success: false, message: 'Stop not found in this route' });
+    }
+
+    const now = new Date();
+    delivery.deliveryStatus = status;
+
+    if (status === 'DELIVERED') {
+      delivery.deliveredAt = now;
+      delivery.jarsDelivered = Number(jarsDelivered);
+      delivery.emptyJarsCollected = Number(emptyJarsCollected);
+
+      route.completedStops += 1;
+      route.totalJarsDelivered += Number(jarsDelivered);
+      route.totalEmptyJarsCollected += Number(emptyJarsCollected);
+
+      // Customer jar balance update
+      if (delivery.customer) {
+        const customer = await User.findById(delivery.customer);
+        if (customer) {
+          if (!customer.jarBalance) customer.jarBalance = { heldJars: 0, returnedJars: 0 };
+          customer.jarBalance.heldJars = Math.max(0, (customer.jarBalance.heldJars || 0) + Number(jarsDelivered) - Number(emptyJarsCollected));
+          customer.jarBalance.returnedJars = (customer.jarBalance.returnedJars || 0) + Number(emptyJarsCollected);
+          await customer.save();
+        }
+      }
+
+      // Credit ₹20 stop earning
+      const driver = await User.findById(partnerId);
+      if (driver) {
+        driver.walletBalance = (driver.walletBalance || 0) + 20;
+        await driver.save();
+        await Transaction.create({
+          user: partnerId,
+          type: 'credit',
+          amount: 20,
+          description: `Route #${route.routeNumber} Stop Delivery`
+        });
+      }
+    } else if (['CUSTOMER_UNAVAILABLE', 'DELIVERY_FAILED'].includes(status)) {
+      delivery.failedAt = now;
+      delivery.failureReason = failureReason || 'Customer unavailable';
+      route.failedStops += 1;
+    }
+
+    delivery.statusHistory = delivery.statusHistory || [];
+    delivery.statusHistory.push({
+      status,
+      timestamp: now,
+      changedBy: 'DRIVER',
+      notes: `Stop status updated: ${status}`
+    });
+    await delivery.save();
+
+    // Check if entire route is completed
+    if (route.completedStops + route.failedStops >= route.totalStops) {
+      route.status = 'COMPLETED';
+      route.completedAt = now;
+      await User.updateOne({ _id: partnerId }, { availability: 'ONLINE', currentActiveRoute: null });
+    } else {
+      // Find next stop and mark OUT_FOR_DELIVERY
+      const nextDelivery = await Delivery.findOne({
+        routeId: route._id,
+        deliveryStatus: 'ASSIGNED'
+      }).sort({ stopIndex: 1 });
+
+      if (nextDelivery) {
+        nextDelivery.deliveryStatus = 'OUT_FOR_DELIVERY';
+        await nextDelivery.save();
+      }
+    }
+
+    await route.save();
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin_room').emit('route_progress_updated', {
+        routeId: route._id,
+        completedStops: route.completedStops,
+        totalStops: route.totalStops,
+        status: route.status
+      });
+      io.to(`user_${delivery.customer}`).emit('daily_delivery_completed', {
+        deliveryId: delivery._id,
+        status
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Stop status updated successfully',
+      data: {
+        route,
+        delivery
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   updateProfile,
   completeOnboarding,
@@ -426,5 +1182,17 @@ module.exports = {
   updateDeliveryStatus,
   getPreferences,
   updatePreferences,
-  getMyOrders
+  getMyOrders,
+  getTodaysDeliveries,
+  markSubscriptionDelivered,
+  respondToOrderRequest,
+  arrivedAtPickup,
+  confirmPickup,
+  arrivedAtCustomer,
+  completeDeliveryStep,
+  markCustomerUnavailable,
+  getMyRoutes,
+  startRoute,
+  updateRouteStopStatus
 };
+

@@ -1,7 +1,24 @@
 const express = require('express');
 const router = express.Router();
 
-const { getAllOrders, updateOrderStatus, getAllCustomers, toggleCustomerSuspension, getDashboardStats, getInventory, getPayments, getDeliverySchedule, markDeliveryDelivered, addDeliveryPartner, getAllDeliveryPartners } = require('../controllers/adminController');
+const { 
+  getAllOrders, 
+  updateOrderStatus, 
+  acceptAndDispatchOrder, 
+  assignOrderDriver,
+  getAllDeliveryRoutes,
+  triggerDailyBatchGeneration,
+  assignRouteDriver,
+  getAllCustomers, 
+  toggleCustomerSuspension, 
+  getDashboardStats, 
+  getInventory, 
+  getPayments, 
+  getDeliverySchedule, 
+  markDeliveryDelivered, 
+  addDeliveryPartner, 
+  getAllDeliveryPartners 
+} = require('../controllers/adminController');
 const reviewController = require('../controllers/reviewController');
 const { requireAuth } = require('../middlewares/authMiddleware');
 const { requireRole } = require('../middlewares/rbacMiddleware');
@@ -19,8 +36,11 @@ router.use(ADMIN_STRICT);
 // Dashboard
 router.get('/dashboard', getDashboardStats);
 
-// Delivery Calendar & Live Deliveries
+// Delivery Calendar, Routes & Live Deliveries
 router.get('/delivery-schedule', getDeliverySchedule);
+router.get('/delivery-routes', getAllDeliveryRoutes);
+router.post('/delivery-routes/generate-batches', triggerDailyBatchGeneration);
+router.post('/delivery-routes/:id/assign-driver', validate({ params: objectIdParamSchema }), assignRouteDriver);
 router.post('/live-deliveries/mark-delivered', markDeliveryDelivered);
 
 // Orders
@@ -28,6 +48,8 @@ router.get('/orders', validate({ query: paginationQuerySchema }), getAllOrders);
 router.get('/customers', getAllCustomers);
 router.patch('/customers/:id/suspend', validate({ params: objectIdParamSchema }), toggleCustomerSuspension);
 router.patch('/orders/:id/status', validate({ params: objectIdParamSchema, body: updateOrderStatusSchema }), updateOrderStatus);
+router.patch('/orders/:id/accept-and-dispatch', validate({ params: objectIdParamSchema }), acceptAndDispatchOrder);
+router.post('/orders/:id/assign-driver', validate({ params: objectIdParamSchema }), assignOrderDriver);
 
 // Reviews
 router.get('/reviews', reviewController.getAdminReviews);

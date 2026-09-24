@@ -111,6 +111,7 @@ exports.getAllSubscriptions = async (req, res) => {
   try {
     const subscriptions = await Subscription.find()
       .populate('user', 'displayName phone email')
+      .populate('deliveryPartner', 'displayName phone deliveryDetails')
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -279,3 +280,57 @@ exports.updatePreferences = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+exports.assignDeliveryPartner = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { deliveryPartnerId } = req.body;
+
+    const update = deliveryPartnerId ? { deliveryPartner: deliveryPartnerId } : { $unset: { deliveryPartner: 1 } };
+
+    const subscription = await Subscription.findByIdAndUpdate(
+      id,
+      update,
+      { new: true }
+    )
+      .populate('user', 'displayName phone email')
+      .populate('deliveryPartner', 'displayName phone deliveryDetails');
+
+    if (!subscription) {
+      return res.status(404).json({ success: false, message: 'Subscription not found' });
+    }
+
+    // Emit real-time updates via Socket.IO
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin_room').emit('subscription_updated', subscription);
+      io.to('delivery_room').emit('subscription_assignment_updated', {
+        subscriptionId: subscription._id,
+        deliveryPartnerId: deliveryPartnerId || null
+      });
+
+      if (deliveryPartnerId) {
+        io.to(`user_${deliveryPartnerId}`).emit('new_daily_delivery_assigned', {
+          subscriptionId: subscription._id,
+          customerName: subscription.user?.displayName || 'Subscriber',
+          planName: subscription.planName,
+          productName: subscription.productName,
+          quantity: subscription.quantity,
+          frequency: subscription.frequency,
+          deliveryTime: subscription.deliveryTime,
+          address: subscription.address
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: deliveryPartnerId ? 'Delivery partner assigned successfully' : 'Delivery partner unassigned',
+      data: subscription
+    });
+  } catch (error) {
+    console.error('Error assigning delivery partner:', error);
+    res.status(500).json({ success: false, message: error.message || 'Server error' });
+  }
+};
+

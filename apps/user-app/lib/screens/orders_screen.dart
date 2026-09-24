@@ -218,6 +218,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       rawOrderId: order['_id'] ?? "",
                       date: formattedDate,
                       status: order['status'] ?? "Pending",
+                      bulkStatus: order['bulkStatus'] ?? order['status'] ?? "Pending",
+                      quoteDetails: order['quoteDetails'] != null ? Map<String, dynamic>.from(order['quoteDetails']) : null,
+                      jarsDelivered: order['jarsDelivered'],
+                      emptyJarsCollected: order['emptyJarsCollected'],
                       productName: order['productName'] ?? "Unknown Product",
                       quantity: "${order['quantity']} Items",
                       price: "₹${order['totalPrice']?.toStringAsFixed(2) ?? '0.00'}",
@@ -276,6 +280,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
     required String orderId,
     required String date,
     required String status,
+    String? bulkStatus,
+    Map<String, dynamic>? quoteDetails,
+    int? jarsDelivered,
+    int? emptyJarsCollected,
     required String productName,
     required String quantity,
     required String price,
@@ -353,7 +361,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    status,
+                    bulkStatus ?? status,
                     style: GoogleFonts.outfit(
                       color: Colors.blue.shade700,
                       fontWeight: FontWeight.bold,
@@ -543,6 +551,83 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ],
             ),
             
+            // Quotation received banner & Review button
+            if (bulkStatus == 'QUOTE_SENT' || (quoteDetails != null && quoteDetails['customerApprovedAt'] == null)) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.request_quote_outlined, size: 18, color: Color(0xFF1D4ED8)),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Commercial Quotation Received",
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: const Color(0xFF1E40AF),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Quoted Price: ₹${(quoteDetails?['quotePricePaise'] != null ? (quoteDetails!['quotePricePaise'] / 100).toStringAsFixed(2) : price)} • Advance: ₹${(quoteDetails?['advanceRequiredPaise'] != null ? (quoteDetails!['advanceRequiredPaise'] / 100).toStringAsFixed(2) : '0.00')}",
+                      style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blue.shade900),
+                    ),
+                    if (quoteDetails?['vehicleRequirement'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        "Fulfillment Carrier: ${quoteDetails!['vehicleRequirement']}",
+                        style: GoogleFonts.outfit(fontSize: 11, color: Colors.blue.shade800),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: () => _showReviewQuoteModal(context, rawOrderId, orderId, productName, price, quoteDetails),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0258C9),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 38),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text("Review & Accept Quotation", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 13)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Returnable Jars Ledger
+            if (jarsDelivered != null || emptyJarsCollected != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text("Jars Delivered: ${jarsDelivered ?? 0}", style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green.shade900)),
+                    Text("Empties Collected: ${emptyJarsCollected ?? 0}", style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue.shade900)),
+                  ],
+                ),
+              ),
+            ],
+
             // Payment Breakdown & Admin Message
             if (adminMessage != null && adminMessage.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -621,6 +706,190 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showReviewQuoteModal(
+    BuildContext context,
+    String rawOrderId,
+    String orderId,
+    String productName,
+    String fallbackPrice,
+    Map<String, dynamic>? quoteDetails,
+  ) {
+    final double quotePrice = quoteDetails?['quotePricePaise'] != null 
+      ? (quoteDetails!['quotePricePaise'] / 100).toDouble() 
+      : 0.0;
+    final double advance = quoteDetails?['advanceRequiredPaise'] != null
+      ? (quoteDetails!['advanceRequiredPaise'] / 100).toDouble()
+      : 0.0;
+    final String vehicle = quoteDetails?['vehicleRequirement'] ?? 'Commercial Carrier';
+    final String notes = quoteDetails?['adminNotes'] ?? 'Standard commercial supply terms.';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        bool approving = false;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Commercial Quotation",
+                        style: GoogleFonts.outfit(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          orderId,
+                          style: GoogleFonts.outfit(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    productName,
+                    style: GoogleFonts.outfit(fontSize: 14, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Pricing card
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Total Quoted Price:", style: GoogleFonts.outfit(fontSize: 14, color: Colors.grey.shade700)),
+                            Text("₹${quotePrice > 0 ? quotePrice.toStringAsFixed(2) : fallbackPrice}", style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Advance Token Required:", style: GoogleFonts.outfit(fontSize: 14, color: Colors.grey.shade700)),
+                            Text("₹${advance.toStringAsFixed(2)}", style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.amber.shade800)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Carrier / Vehicle:", style: GoogleFonts.outfit(fontSize: 14, color: Colors.grey.shade700)),
+                            Text(vehicle, style: GoogleFonts.outfit(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade700)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (notes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Text(
+                        "Terms: $notes",
+                        style: GoogleFonts.outfit(fontSize: 12, color: Colors.amber.shade900),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: approving ? null : () async {
+                        setModalState(() => approving = true);
+                        final success = await BulkOrderService().approveQuote(rawOrderId);
+                        setModalState(() => approving = false);
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          if (success) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Quotation approved successfully!"),
+                                backgroundColor: Color(0xFF1E9C1C),
+                              ),
+                            );
+                            BulkOrderService().fetchMyBulkOrders();
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Failed to approve quotation. Please try again."),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E9C1C),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                      child: approving
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        : Text("Accept & Confirm Quotation", style: GoogleFonts.outfit(fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

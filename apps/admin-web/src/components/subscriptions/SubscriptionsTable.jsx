@@ -3,12 +3,19 @@
 import { useState } from "react";
 import { 
   Search, Trash2, Pencil, 
-  ChevronLeft, ChevronRight, Play, Pause, Ban, Undo2
+  ChevronLeft, ChevronRight, Play, Pause, Ban, Undo2, Bike
 } from "lucide-react";
 
 const PAGE_SIZE = 8;
 
-export default function SubscriptionsTable({ localItems, onRowClick, onEditClick, onDeleteClick, onToggleSuspend }) {
+export default function SubscriptionsTable({ 
+  localItems, 
+  onRowClick, 
+  onEditClick, 
+  onDeleteClick, 
+  onToggleSuspend,
+  onAssignDriverClick
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("All");
@@ -67,6 +74,7 @@ export default function SubscriptionsTable({ localItems, onRowClick, onEditClick
             <tr className="border-b border-slate-100">
               <th className="pb-3 pt-4 px-4 pl-6 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-auto">Subscriber</th>
               <th className="pb-3 pt-4 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Plan & Frequency</th>
+              <th className="pb-3 pt-4 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assigned Rider</th>
               <th className="pb-3 pt-4 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Price/Delivery</th>
               <th className="pb-3 pt-4 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Next Delivery</th>
               <th className="pb-3 pt-4 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
@@ -75,7 +83,7 @@ export default function SubscriptionsTable({ localItems, onRowClick, onEditClick
           </thead>
           <tbody>
             {paginated.length === 0 ? (
-              <tr><td colSpan={6} className="py-16 text-center text-slate-400 font-medium text-sm">No subscriptions found</td></tr>
+              <tr><td colSpan={7} className="py-16 text-center text-slate-400 font-medium text-sm">No subscriptions found</td></tr>
             ) : paginated.map((item) => (
               <tr key={item.id} 
                   onClick={() => onRowClick && onRowClick(item)}
@@ -97,6 +105,32 @@ export default function SubscriptionsTable({ localItems, onRowClick, onEditClick
                   <span className="inline-flex px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 mt-1">
                     {item.frequency}
                   </span>
+                </td>
+                <td className="py-4 px-4" onClick={e => e.stopPropagation()}>
+                  {item.driverName && item.driverName !== 'Unassigned' ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-teal-50 border border-teal-200 flex items-center justify-center text-[10px] font-bold text-teal-700">
+                        {item.driverName.charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate">{item.driverName}</p>
+                        <button 
+                          onClick={() => onAssignDriverClick && onAssignDriverClick(item)}
+                          className="text-[10px] font-semibold text-teal-600 hover:text-teal-700 hover:underline"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => onAssignDriverClick && onAssignDriverClick(item)}
+                      className="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-dashed border-teal-300 bg-teal-50/50 text-teal-700 hover:bg-teal-100/60 text-xs font-bold transition-colors"
+                    >
+                      <Bike className="w-3.5 h-3.5 mr-1 text-teal-600" />
+                      Assign Rider
+                    </button>
+                  )}
                 </td>
                 <td className="py-4 px-4">
                   <p className="text-sm font-black text-slate-800">₹{item.price}</p>
@@ -165,6 +199,21 @@ export default function SubscriptionsTable({ localItems, onRowClick, onEditClick
                 <p className="text-[9px] font-bold text-slate-400 uppercase mb-0.5">Next Delivery</p>
                 <p className="text-xs font-bold text-slate-700 truncate">{item.nextDelivery}</p>
               </div>
+            </div>
+
+            <div className="mt-2 p-2 rounded-xl bg-slate-50 flex items-center justify-between" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2">
+                <Bike className="w-3.5 h-3.5 text-teal-600" />
+                <span className="text-[11px] font-bold text-slate-700">
+                  {item.driverName && item.driverName !== 'Unassigned' ? item.driverName : 'Unassigned Rider'}
+                </span>
+              </div>
+              <button
+                onClick={() => onAssignDriverClick && onAssignDriverClick(item)}
+                className="text-[10px] font-bold text-teal-600 hover:text-teal-700 underline"
+              >
+                {item.driverName && item.driverName !== 'Unassigned' ? 'Change' : 'Assign'}
+              </button>
             </div>
 
             <div className="flex justify-end gap-2 mt-3 pt-3 border-t border-slate-50" onClick={e => e.stopPropagation()}>

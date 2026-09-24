@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../models/product_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'cart_service.dart';
+import 'settings_service.dart';
 
 class WishlistService {
   static final WishlistService _instance = WishlistService._internal();
@@ -19,7 +20,7 @@ class WishlistService {
   }
 
   final ValueNotifier<List<ProductModel>> items = ValueNotifier([]);
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
 
   Future<void> fetchWishlist() async {
     try {

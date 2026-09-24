@@ -2,16 +2,25 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAO-mha02w0KW71CeK-dui_LCvKN6JmMvc",
-  appId: "1:460372603542:web:placeholder", // Fallback for web if needed
-  messagingSenderId: "460372603542",
-  projectId: "nilara-83b61",
-  authDomain: "nilara-83b61.firebaseapp.com",
-  storageBucket: "nilara-83b61.firebasestorage.app",
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
 };
 
-// Initialize Firebase only if it hasn't been initialized yet
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
+// Initialize Firebase only if config is provided
+let app = null;
+let auth = null;
+
+if (firebaseConfig.apiKey) {
+  try {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+    auth = getAuth(app);
+  } catch (err) {
+    console.warn("Firebase initialization warning:", err.message);
+  }
+}
 
 export { app, auth };

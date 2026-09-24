@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'settings_service.dart';
 
 class Address {
   final String id;
@@ -103,7 +104,7 @@ class AddressService {
   static final AddressService _instance = AddressService._internal();
   factory AddressService() => _instance;
   
-  final String baseUrl = 'http://localhost:5000/api/v1/addresses';
+  String get baseUrl => '${SettingsService.baseUrl}/addresses';
   final ValueNotifier<List<Address>> addresses = ValueNotifier([]);
 
   AddressService._internal() {

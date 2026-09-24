@@ -4,7 +4,28 @@ const upload = multer({ dest: 'uploads/' });
 
 const router = express.Router();
 
-const { updateProfile, completeOnboarding, uploadRC, getAvailableOrders, acceptOrder, updateDeliveryStatus, getPreferences, updatePreferences, getMyOrders } = require('../controllers/deliveryController');
+const { 
+  updateProfile, 
+  completeOnboarding, 
+  uploadRC, 
+  getAvailableOrders, 
+  acceptOrder, 
+  updateDeliveryStatus, 
+  getPreferences, 
+  updatePreferences, 
+  getMyOrders,
+  getTodaysDeliveries,
+  markSubscriptionDelivered,
+  respondToOrderRequest,
+  arrivedAtPickup,
+  confirmPickup,
+  arrivedAtCustomer,
+  completeDeliveryStep,
+  markCustomerUnavailable,
+  getMyRoutes,
+  startRoute,
+  updateRouteStopStatus
+} = require('../controllers/deliveryController');
 const { getWalletData, requestPayout } = require('../controllers/walletController');
 const { requireAuth, requireOnboarding } = require('../middlewares/authMiddleware');
 const { requireRole } = require('../middlewares/rbacMiddleware');
@@ -45,11 +66,28 @@ router.post('/onboarding', upload.fields([
   { name: 'rcImage', maxCount: 1 }
 ]), completeOnboarding);
 
-// Orders
+// Orders & Deliveries
 router.get('/orders/available', requireOnboarding, validate({ query: paginationQuerySchema }), getAvailableOrders);
 router.get('/orders/my-orders', requireOnboarding, getMyOrders);
+router.get('/todays-deliveries', requireOnboarding, getTodaysDeliveries);
+router.post('/orders/respond-request', requireOnboarding, respondToOrderRequest);
 router.patch('/orders/:id/accept', requireOnboarding, validate({ params: objectIdParamSchema }), acceptOrder);
 router.patch('/orders/:id/status', requireOnboarding, validate({ params: objectIdParamSchema, body: updateOrderStatusSchema }), updateDeliveryStatus);
+
+// Normal Delivery Step-by-Step Progression
+router.post('/orders/:id/arrived-pickup', requireOnboarding, validate({ params: objectIdParamSchema }), arrivedAtPickup);
+router.post('/orders/:id/confirm-pickup', requireOnboarding, validate({ params: objectIdParamSchema }), confirmPickup);
+router.post('/orders/:id/arrived-customer', requireOnboarding, validate({ params: objectIdParamSchema }), arrivedAtCustomer);
+router.post('/orders/:id/complete-delivery', requireOnboarding, validate({ params: objectIdParamSchema }), completeDeliveryStep);
+router.post('/orders/:id/customer-unavailable', requireOnboarding, validate({ params: objectIdParamSchema }), markCustomerUnavailable);
+
+// Subscription Multi-Stop Routes
+router.get('/routes/today', requireOnboarding, getMyRoutes);
+router.post('/routes/:id/start', requireOnboarding, validate({ params: objectIdParamSchema }), startRoute);
+router.post('/routes/:id/stops/:stopId/status', requireOnboarding, updateRouteStopStatus);
+
+// Subscriptions
+router.post('/subscriptions/:id/mark-delivered', requireOnboarding, validate({ params: objectIdParamSchema }), markSubscriptionDelivered);
 
 // Wallet & Payouts
 router.get('/wallet', requireOnboarding, getWalletData);

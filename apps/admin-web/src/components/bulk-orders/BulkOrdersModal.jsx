@@ -1,6 +1,6 @@
-import { X, Calendar, Clock, MapPin, Package, DollarSign, CreditCard } from "lucide-react";
+import { X, Calendar, Clock, MapPin, Package, DollarSign, CreditCard, Truck, Send, CheckCircle2, RotateCcw } from "lucide-react";
 
-export default function BulkOrdersModal({ order, onClose, onUpdateStatus }) {
+export default function BulkOrdersModal({ order, onClose, onUpdateStatus, onOpenQuote, onOpenDispatch }) {
   if (!order) return null;
 
   return (
@@ -120,6 +120,66 @@ export default function BulkOrdersModal({ order, onClose, onUpdateStatus }) {
               </div>
             )}
 
+            {/* Commercial Quotation & Vehicle Fulfillment */}
+            <div className="space-y-4 md:col-span-2">
+              <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 flex items-center justify-between">
+                <span>Quotation & Carrier Logistics</span>
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                  {order.bulkStatus || order.status}
+                </span>
+              </h3>
+              
+              <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <span className="text-slate-400 block mb-1 font-medium">Quoted Total</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    ₹{order.quoteDetails?.quotePricePaise ? (order.quoteDetails.quotePricePaise / 100).toFixed(2) : order.totalPrice.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1 font-medium">Advance Token Required</span>
+                  <span className="text-sm font-bold text-slate-800">
+                    ₹{order.quoteDetails?.advanceRequiredPaise ? (order.quoteDetails.advanceRequiredPaise / 100).toFixed(2) : '0.00'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-1 font-medium">Vehicle Requirement</span>
+                  <span className="text-xs font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded-md inline-block">
+                    {order.quoteDetails?.vehicleRequirement || order.vehicleRequirement || 'LOADER'}
+                  </span>
+                </div>
+
+                {order.quoteDetails?.adminNotes && (
+                  <div className="md:col-span-3 border-t border-slate-200/50 pt-2">
+                    <span className="text-slate-400 block mb-1 font-medium">Admin Quotation Terms</span>
+                    <p className="text-slate-700 font-medium italic">{order.quoteDetails.adminNotes}</p>
+                  </div>
+                )}
+
+                {order.deliveryPartner && (
+                  <div className="md:col-span-2 border-t border-slate-200/50 pt-2">
+                    <span className="text-slate-400 block mb-1 font-medium">Dispatched Driver</span>
+                    <p className="text-slate-800 font-bold">
+                      {order.deliveryPartner.displayName || order.deliveryPartner.name || "Assigned Driver"} ({order.deliveryPartner.phone || "No phone"})
+                    </p>
+                  </div>
+                )}
+
+                {(order.jarsDelivered !== undefined || order.emptyJarsCollected !== undefined) && (
+                  <div className="md:col-span-3 border-t border-slate-200/50 pt-2 flex items-center gap-6">
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Full Jars Delivered</span>
+                      <span className="text-sm font-extrabold text-emerald-600">{order.jarsDelivered || 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Empty Jars Collected</span>
+                      <span className="text-sm font-extrabold text-blue-600">{order.emptyJarsCollected || 0}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Payment & Address */}
             <div className="space-y-4 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -160,35 +220,50 @@ export default function BulkOrdersModal({ order, onClose, onUpdateStatus }) {
         </div>
 
         {/* Footer Actions */}
-        <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-xl flex justify-between items-center">
+        <div className="p-6 border-t border-slate-100 bg-slate-50 rounded-b-xl flex flex-wrap justify-between items-center gap-3">
           <div>
-            <span className="text-sm text-slate-500 mr-2">Current Status:</span>
-            <span className="font-semibold text-slate-800">{order.status}</span>
+            <span className="text-xs text-slate-500 mr-2">Status:</span>
+            <span className="font-bold text-xs text-slate-800 bg-white border border-slate-200 px-2 py-1 rounded-md">
+              {order.bulkStatus || order.status}
+            </span>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2.5">
+            {/* Quote Action */}
+            {(order.bulkStatus === 'BULK_REQUESTED' || order.status === 'Pending' || order.bulkStatus === 'UNDER_REVIEW') && onOpenQuote && (
+              <button 
+                onClick={onOpenQuote}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Send / Revise Quote
+              </button>
+            )}
+
+            {/* Dispatch Action */}
+            {(order.bulkStatus === 'CUSTOMER_APPROVED' || order.bulkStatus === 'CONFIRMED' || order.bulkStatus === 'READY_FOR_DISPATCH' || (order.status === 'Confirmed' && !order.deliveryPartner)) && onOpenDispatch && (
+              <button 
+                onClick={onOpenDispatch}
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+              >
+                <Truck className="w-3.5 h-3.5" />
+                Dispatch Vehicle & Driver
+              </button>
+            )}
+
             {order.status !== 'Cancelled' && (
               <button 
                 onClick={() => onUpdateStatus('Cancelled')}
-                className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 hover:bg-red-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-xs font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 rounded-xl transition-colors"
               >
                 Cancel Order
               </button>
             )}
             
-            {order.status === 'Pending' && (
-              <button 
-                onClick={() => onUpdateStatus('Confirmed')}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-              >
-                Confirm Order
-              </button>
-            )}
-            
-            {order.status === 'Confirmed' && (
+            {(order.status === 'Processing' || order.bulkStatus === 'DISPATCHED') && (
               <button 
                 onClick={() => onUpdateStatus('Delivered')}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-colors"
               >
                 Mark Delivered
               </button>

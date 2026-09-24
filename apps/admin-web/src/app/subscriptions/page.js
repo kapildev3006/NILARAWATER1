@@ -6,8 +6,14 @@ import SubscriptionsKPIs from "@/components/subscriptions/SubscriptionsKPIs";
 import SubscriptionsTable from "@/components/subscriptions/SubscriptionsTable";
 import SubscriptionListModal from "@/components/subscriptions/SubscriptionListModal";
 import SubscriptionFormModal from "@/components/subscriptions/SubscriptionFormModal";
+import AssignDriverModal from "@/components/subscriptions/AssignDriverModal";
+import DeliveryRoutesTable from "@/components/subscriptions/DeliveryRoutesTable";
+import AssignRouteDriverModal from "@/components/subscriptions/AssignRouteDriverModal";
+import RouteDetailModal from "@/components/subscriptions/RouteDetailModal";
+import { Layers, MapPin, Repeat } from "lucide-react";
 
 export default function SubscriptionsPage() {
+  const [activeTab, setActiveTab] = useState("subscriptions"); // "subscriptions" | "delivery_routes"
   const [modalFilter, setModalFilter] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState("detail");
@@ -18,15 +24,36 @@ export default function SubscriptionsPage() {
   const [itemToEdit, setItemToEdit] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const mapSubscription = (sub) => ({
-    ...sub,
-    id: sub._id,
-    customerName: sub.user?.displayName || "Unknown",
-    phone: sub.user?.phone || "N/A",
-    statusColor: sub.status === "Active" ? "teal" : sub.status === "Suspended" ? "orange" : sub.status === "Cancelled" ? "red" : "slate",
-    nextDelivery: new Date(sub.nextDeliveryDate || sub.startDate).toLocaleDateString(),
-    skippedDeliveries: sub.skippedDeliveries || []
-  });
+  const [isAssignDriverOpen, setIsAssignDriverOpen] = useState(false);
+  const [itemToAssignDriver, setItemToAssignDriver] = useState(null);
+
+  // Delivery Routes state
+  const [routes, setRoutes] = useState([]);
+  const [loadingRoutes, setLoadingRoutes] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState(null);
+  const [routeToAssignDriver, setRouteToAssignDriver] = useState(null);
+
+  const mapSubscription = (sub) => {
+    const partner = sub.deliveryPartner;
+    const driverName = (typeof partner === 'object' && partner !== null) 
+      ? (partner.displayName || partner.name || "Unassigned") 
+      : "Unassigned";
+    const driverPhone = (typeof partner === 'object' && partner !== null) ? (partner.phone || "") : "";
+    const driverId = (typeof partner === 'object' && partner !== null) ? partner._id : (partner || null);
+
+    return {
+      ...sub,
+      id: sub._id,
+      customerName: sub.user?.displayName || "Unknown",
+      phone: sub.user?.phone || "N/A",
+      driverName,
+      driverPhone,
+      driverId,
+      statusColor: sub.status === "Active" ? "teal" : sub.status === "Suspended" ? "orange" : sub.status === "Cancelled" ? "red" : "slate",
+      nextDelivery: new Date(sub.nextDeliveryDate || sub.startDate).toLocaleDateString(),
+      skippedDeliveries: sub.skippedDeliveries || []
+    };
+  };
 
   const loadSubscriptions = async () => {
     try {
@@ -43,9 +70,30 @@ export default function SubscriptionsPage() {
     }
   };
 
+  const loadRoutes = async () => {
+    try {
+      setLoadingRoutes(true);
+      const res = await fetchWithAuth('/admin/delivery-routes');
+      if (res.success && res.data) {
+        setRoutes(res.data);
+      }
+    } catch (err) {
+      console.error('Error loading delivery routes:', err);
+    } finally {
+      setLoadingRoutes(false);
+    }
+  };
+
   useEffect(() => {
     loadSubscriptions();
+    loadRoutes();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "delivery_routes") {
+      loadRoutes();
+    }
+  }, [activeTab]);
 
   const handleExport = () => alert("Export clicked");
 
@@ -110,34 +158,91 @@ export default function SubscriptionsPage() {
     setIsModalOpen(true);
   };
 
+  const handleAssignDriverClick = (item) => {
+    setItemToAssignDriver(item);
+    setIsAssignDriverOpen(true);
+  };
+
+  const handleDriverAssigned = (updatedSub) => {
+    const mapped = mapSubscription(updatedSub);
+    setLocalItems(prev => prev.map(i => (i._id === mapped.id || i.id === mapped.id) ? mapped : i));
+    if (selectedItem && (selectedItem._id === mapped.id || selectedItem.id === mapped.id)) {
+      setSelectedItem(mapped);
+    }
+  };
+
   return (
     <div className="max-w-[1600px] mx-auto pb-10">
       
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-800 tracking-tight mb-1">Subscribers</h1>
-          <p className="text-sm font-medium text-slate-500">Manage recurring orders and user subscriptions</p>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight mb-1">
+            {activeTab === "subscriptions" ? "Subscriptions" : "Delivery Routes & Batches"}
+          </h1>
+          <p className="text-sm font-medium text-slate-500">
+            {activeTab === "subscriptions" 
+              ? "Manage recurring water orders and subscriber customer profiles"
+              : "Group scheduled deliveries into area batches and assign single delivery partners for multi-stop delivery"}
+          </p>
         </div>
 
+        {/* Tab Switcher */}
+        <div className="bg-slate-100/80 p-1 rounded-2xl flex items-center gap-1 border border-slate-200/60 shadow-inner">
+          <button
+            onClick={() => setActiveTab("subscriptions")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+              activeTab === "subscriptions"
+                ? "bg-white text-teal-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Repeat className="w-3.5 h-3.5" />
+            Subscriptions
+          </button>
+          <button
+            onClick={() => setActiveTab("delivery_routes")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+              activeTab === "delivery_routes"
+                ? "bg-white text-teal-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Batch Routes ({routes.length})
+          </button>
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <SubscriptionsKPIs 
-        modalFilter={modalFilter}
-        setModalFilter={setModalFilter}
-        setIsModalOpen={setIsModalOpen}
-        setModalMode={setModalMode}
-      />
+      {activeTab === "subscriptions" ? (
+        <>
+          {/* KPI Cards */}
+          <SubscriptionsKPIs 
+            modalFilter={modalFilter}
+            setModalFilter={setModalFilter}
+            setIsModalOpen={setIsModalOpen}
+            setModalMode={setModalMode}
+          />
 
-      {/* Table */}
-      <SubscriptionsTable 
-        localItems={localItems}
-        onRowClick={handleRowClick} 
-        onEditClick={handleEditClick}
-        onDeleteClick={handleDeleteClick}
-        onToggleSuspend={handleToggleSuspend}
-      />
+          {/* Table */}
+          <SubscriptionsTable 
+            localItems={localItems}
+            onRowClick={handleRowClick} 
+            onEditClick={handleEditClick}
+            onDeleteClick={handleDeleteClick}
+            onToggleSuspend={handleToggleSuspend}
+            onAssignDriverClick={handleAssignDriverClick}
+          />
+        </>
+      ) : (
+        <DeliveryRoutesTable
+          routes={routes}
+          loading={loadingRoutes}
+          onRefresh={loadRoutes}
+          onSelectRoute={(route) => setSelectedRoute(route)}
+          onAssignDriverClick={(route) => setRouteToAssignDriver(route)}
+        />
+      )}
 
       {/* List / Detail Modal */}
       <SubscriptionListModal
@@ -149,6 +254,7 @@ export default function SubscriptionsPage() {
         modalMode={modalMode}
         setModalMode={setModalMode}
         onEditClick={handleEditClick}
+        onAssignDriverClick={handleAssignDriverClick}
       />
 
       {/* Form Modal */}
@@ -157,6 +263,32 @@ export default function SubscriptionsPage() {
         onClose={() => setIsFormOpen(false)}
         itemToEdit={itemToEdit}
         onSave={handleSaveItem}
+      />
+
+      {/* Assign Driver Modal */}
+      <AssignDriverModal
+        isOpen={isAssignDriverOpen}
+        onClose={() => { setIsAssignDriverOpen(false); setItemToAssignDriver(null); }}
+        subscription={itemToAssignDriver}
+        onAssigned={handleDriverAssigned}
+      />
+
+      {/* Assign Route Driver Modal */}
+      <AssignRouteDriverModal
+        isOpen={!!routeToAssignDriver}
+        route={routeToAssignDriver}
+        onClose={() => setRouteToAssignDriver(null)}
+        onAssigned={() => {
+          loadRoutes();
+        }}
+      />
+
+      {/* Route Detail Modal */}
+      <RouteDetailModal
+        isOpen={!!selectedRoute}
+        route={selectedRoute}
+        onClose={() => setSelectedRoute(null)}
+        onAssignDriverClick={(route) => setRouteToAssignDriver(route)}
       />
     </div>
   );

@@ -67,12 +67,63 @@ const orderSchema = new mongoose.Schema({
   taxPaise:          { type: Number, default: 0,    min: 0, validate: { validator: Number.isInteger, message: 'must be integer' } },
   totalPaise:        { type: Number, required: true, min: 0, validate: { validator: Number.isInteger, message: 'must be integer' } },
 
-  paymentMethod: { type: String, enum: ['cod', 'online'], required: true },
-  paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
+  paymentMethod: { type: String, enum: ['cod', 'online', 'UPI', 'CARD'], required: true },
+  paymentStatus: { 
+    type: String, 
+    enum: ['pending', 'paid', 'failed', 'PENDING', 'PAID', 'COD', 'FAILED', 'REFUNDED'], 
+    default: 'PENDING' 
+  },
+
+  orderType: {
+    type: String,
+    enum: ['NORMAL', 'BULK', 'SUBSCRIPTION'],
+    default: 'NORMAL',
+    index: true
+  },
+
+  orderStatus: {
+    type: String,
+    enum: ['PLACED', 'CONFIRMED', 'PROCESSING', 'READY_FOR_PICKUP', 'COMPLETED', 'CANCELLED', 'REJECTED'],
+    default: 'PLACED',
+    index: true
+  },
+
+  deliveryStatus: {
+    type: String,
+    enum: [
+      'NOT_ASSIGNED',
+      'SEARCHING_DELIVERY_PARTNER',
+      'ASSIGNED',
+      'ARRIVED_AT_PICKUP',
+      'PICKED_UP',
+      'OUT_FOR_DELIVERY',
+      'ARRIVED_AT_CUSTOMER',
+      'DELIVERED',
+      'CUSTOMER_UNAVAILABLE',
+      'DELIVERY_FAILED',
+      'CANCELLED'
+    ],
+    default: 'NOT_ASSIGNED',
+    index: true
+  },
+
+  delivery: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Delivery'
+  },
+
+  jarsDelivered: {
+    type: Number,
+    default: 0
+  },
+  emptyJarsCollected: {
+    type: Number,
+    default: 0
+  },
 
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled'],
+    enum: ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled', 'PLACED', 'CONFIRMED', 'PROCESSING', 'READY_FOR_PICKUP', 'COMPLETED', 'CANCELLED', 'REJECTED'],
     default: 'pending'
   },
 
@@ -101,6 +152,13 @@ const orderSchema = new mongoose.Schema({
   outForDeliveryAt: { type: Date },
   deliveredAt: { type: Date },
   cancelledAt: { type: Date },
+
+  statusHistory: [{
+    status: { type: String, required: true },
+    timestamp: { type: Date, default: Date.now },
+    changedBy: { type: String, default: 'SYSTEM' },
+    notes: { type: String }
+  }]
 }, {
   timestamps: true
 });

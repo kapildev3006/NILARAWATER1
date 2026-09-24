@@ -5,8 +5,12 @@ const { auth } = require('../config/firebase');
 const Product = require('../models/Product');
 const BulkOrder = require('../models/BulkOrder');
 const Subscription = require('../models/Subscription');
+const Delivery = require('../models/Delivery');
+const DeliveryRoute = require('../models/DeliveryRoute');
+const { batchDeliveriesIntoRoutes } = require('../services/subscriptionBatchService');
 const { recordAudit } = require('../models/AuditLog');
 const { messaging } = require('../config/firebase');
+const { notifyCustomerOrderStatus } = require('../services/notificationService');
 
 const getAllOrders = async (req, res, next) => {
   try {
@@ -100,27 +104,9 @@ const updateOrderStatus = async (req, res, next) => {
     req.app.get('io').to(`delivery_room`).emit('order_status_updated', { orderId: order._id, status });
     
     // Send FCM Push Notification
-    if (messaging) {
-      const user = await require('../models/User').findById(order.user).lean();
-      if (user && user.fcmTokens && user.fcmTokens.length > 0) {
-        const message = {
-          notification: {
-            title: 'Order Status Update',
-            body: `Your order #${order.orderNumber} is now ${status.toUpperCase()}`
-          },
-          data: {
-            orderId: order._id.toString(),
-            status: status
-          },
-          tokens: user.fcmTokens
-        };
-        try {
-          await messaging.sendEachForMulticast(message);
-        } catch (fcmErr) {
-          console.error('Failed to send FCM notification:', fcmErr);
-        }
-      }
-    }
+    notifyCustomerOrderStatus(order, status).catch(fcmErr => {
+      console.error('Failed to send FCM notification:', fcmErr);
+    });
     
     res.status(200).json({
       success: true,
@@ -394,6 +380,7 @@ const getDeliverySchedule = async (req, res, next) => {
     // 1. Fetch Active/Pending Subscriptions
     const subscriptions = await Subscription.find({ status: { $in: ['Active', 'Pending'] } })
       .populate('user', 'displayName phone email')
+      .populate('deliveryPartner', 'displayName phone')
       .lean();
 
     const subscriptionDeliveries = [];
@@ -440,13 +427,15 @@ const getDeliverySchedule = async (req, res, next) => {
         if (isDue && !isSkipped) {
           subscriptionDeliveries.push({
             id: `sub_${sub._id}_${target.label}`,
+            subscriptionId: sub._id,
             date: target.label,
             timeWindow: sub.deliveryTime || 'Standard',
             customerName: sub.user?.displayName || 'Unknown Customer',
             phone: sub.user?.phone || 'N/A',
             address: sub.address ? `${sub.address.apartment ? sub.address.apartment + ', ' : ''}${sub.address.street || ''}` : 'N/A',
             items: `${sub.quantity}x ${sub.productName}`,
-            driver: 'Unassigned',
+            driver: sub.deliveryPartner?.displayName || 'Unassigned',
+            driverId: sub.deliveryPartner?._id || null,
             route: sub.planName || 'Subscription',
             status: 'Scheduled',
             statusColor: 'teal',
@@ -463,6 +452,7 @@ const getDeliverySchedule = async (req, res, next) => {
     // 2. Fetch Pending/Confirmed Regular Orders
     const orders = await Order.find({ status: { $in: ['pending', 'confirmed', 'out_for_delivery'] } })
       .populate('user', 'displayName phone email')
+      .populate('deliveryPartner', 'displayName phone')
       .lean();
 
     const orderDeliveries = [];
@@ -477,13 +467,15 @@ const getDeliverySchedule = async (req, res, next) => {
           const address = order.deliveryAddressSnapshot || order.deliveryAddress;
           orderDeliveries.push({
             id: `ord_${order._id}_${target.label}`,
+            orderId: order._id,
             date: target.label,
             timeWindow: order.deliveryTimePref || 'Standard (Anytime)',
             customerName: order.user?.displayName || 'Guest',
             phone: order.user?.phone || 'N/A',
             address: address ? `${address.addressLine1 || ''} ${address.addressLine2 || ''}, ${address.city || ''}`.trim().replace(/^, |, $/g, '') : 'N/A',
             items: `${order.items?.length || 0} items`,
-            driver: 'Unassigned',
+            driver: order.deliveryPartner?.displayName || 'Unassigned',
+            driverId: order.deliveryPartner?._id || null,
             route: 'Standard Order',
             status: order.status === 'out_for_delivery' ? 'Dispatched' : 'Pending',
             statusColor: order.status === 'out_for_delivery' ? 'blue' : 'amber',
@@ -668,12 +660,304 @@ const getAllDeliveryPartners = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+const acceptAndDispatchOrder = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await Order.findById(id).populate('user', 'displayName phone email');
+    
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.status !== 'pending') {
+      return res.status(400).json({ success: false, message: `Order is already ${order.status}` });
+    }
+
+    order.status = 'confirmed';
+    order.acceptedAt = new Date();
+    await order.save();
+
+    await recordAudit('ADMIN_ORDER_ACCEPT_DISPATCH', req.auth.userId, {
+      orderId: order._id,
+      orderNumber: order.orderNumber
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      // 1. Notify user & admin
+      io.to(`user_${order.user?._id || order.user}`).emit('order_status_updated', {
+        orderId: order._id,
+        status: 'confirmed'
+      });
+      io.to('admin_room').emit('order_status_updated', {
+        orderId: order._id,
+        status: 'confirmed'
+      });
+
+      // 2. Broadcast to ALL delivery riders for ride-like popup alert!
+      const broadcastPayload = {
+        _id: order._id.toString(),
+        orderNumber: order.orderNumber,
+        totalPaise: order.totalPaise,
+        totalAmount: (order.totalPaise / 100).toFixed(2),
+        deliveryFeePaise: order.deliveryFeePaise,
+        deliveryFee: (order.deliveryFeePaise > 0 ? order.deliveryFeePaise / 100 : 20).toFixed(2),
+        deliveryAddress: order.deliveryAddressSnapshot || {},
+        items: order.items || [],
+        itemCount: order.items?.length || 0,
+        customerName: order.user?.displayName || order.deliveryAddressSnapshot?.recipientName || 'Customer',
+        customerPhone: order.user?.phone || order.deliveryAddressSnapshot?.phone || '',
+        paymentMethod: order.paymentMethod,
+        placedAt: order.createdAt,
+        timestamp: new Date().toISOString()
+      };
+
+      io.to('delivery_room').emit('new_order_available', broadcastPayload);
+      console.log(`[Socket.io] Admin accepted order #${order.orderNumber}. Broadcasted new_order_available to delivery_room.`);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Order accepted and dispatched to all delivery partners!',
+      data: order
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const assignOrderDriver = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { deliveryPartnerId } = req.body;
+
+    const order = await Order.findById(id).populate('user', 'displayName phone');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const previousPartner = order.deliveryPartner;
+    order.deliveryPartner = deliveryPartnerId || null;
+    order.deliveryStatus = deliveryPartnerId ? 'ASSIGNED' : 'SEARCHING_DELIVERY_PARTNER';
+    if (order.orderStatus === 'PLACED') {
+      order.orderStatus = 'CONFIRMED';
+    }
+    order.status = deliveryPartnerId ? 'Processing' : 'Pending';
+
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({
+      status: order.deliveryStatus,
+      timestamp: new Date(),
+      changedBy: 'ADMIN',
+      notes: deliveryPartnerId ? `Admin assigned rider ${deliveryPartnerId}` : 'Admin unassigned rider'
+    });
+
+    await order.save();
+
+    let delivery = null;
+    if (order.delivery) {
+      delivery = await Delivery.findById(order.delivery);
+    }
+    if (!delivery) {
+      delivery = await Delivery.findOne({ orderId: order._id });
+    }
+
+    if (delivery) {
+      delivery.deliveryPartner = deliveryPartnerId || null;
+      delivery.deliveryStatus = deliveryPartnerId ? 'ASSIGNED' : 'NOT_ASSIGNED';
+      delivery.assignedAt = deliveryPartnerId ? new Date() : null;
+      await delivery.save();
+    } else if (deliveryPartnerId) {
+      delivery = await Delivery.create({
+        deliveryNumber: `DEL-${order.orderNumber || order._id.toString().slice(-6)}`,
+        orderType: 'NORMAL',
+        orderId: order._id,
+        customer: order.user?._id || order.user,
+        deliveryPartner: deliveryPartnerId,
+        scheduledDate: new Date(),
+        deliveryAddress: {
+          recipientName: order.deliveryAddressSnapshot?.recipientName || order.user?.displayName || 'Customer',
+          phone: order.deliveryAddressSnapshot?.phone || order.user?.phone || '',
+          addressLine1: order.deliveryAddressSnapshot?.addressLine1 || '',
+          city: order.deliveryAddressSnapshot?.city || 'Noida',
+          area: order.deliveryAddressSnapshot?.area || 'Sector 62'
+        },
+        items: (order.items || []).map(it => ({
+          name: it.name,
+          quantity: it.quantity,
+          isWaterJar: (it.name || '').toLowerCase().includes('jar') || (it.name || '').toLowerCase().includes('20l'),
+          unitPricePaise: it.pricePaise || 0
+        })),
+        totalJarsToDeliver: (order.items || []).reduce((sum, it) => {
+          return sum + ((it.name || '').toLowerCase().includes('jar') ? it.quantity : 0);
+        }, 0),
+        deliveryStatus: 'ASSIGNED',
+        assignedAt: new Date()
+      });
+      order.delivery = delivery._id;
+      await order.save();
+    }
+
+    if (deliveryPartnerId) {
+      await User.updateOne({ _id: deliveryPartnerId }, { availability: 'BUSY', currentActiveDelivery: delivery?._id || null });
+    }
+    if (previousPartner && previousPartner.toString() !== deliveryPartnerId) {
+      await User.updateOne({ _id: previousPartner }, { availability: 'ONLINE', currentActiveDelivery: null });
+    }
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user_${order.user?._id || order.user}`).emit('order_status_updated', {
+        orderId: order._id,
+        status: order.status,
+        deliveryStatus: order.deliveryStatus
+      });
+      if (deliveryPartnerId) {
+        io.to(`user_${deliveryPartnerId}`).emit('targeted_delivery_request', {
+          orderId: order._id,
+          deliveryId: delivery?._id,
+          orderNumber: order.orderNumber,
+          totalAmount: (order.totalPaise / 100).toFixed(2),
+          deliveryFee: '20.00',
+          itemCount: order.items?.length || 1,
+          customerName: order.user?.displayName || 'Customer',
+          deliveryAddress: order.deliveryAddressSnapshot || {},
+          items: order.items || [],
+          timeoutSeconds: 60
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: deliveryPartnerId ? 'Driver assigned successfully' : 'Driver unassigned',
+      data: order
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getAllDeliveryRoutes = async (req, res, next) => {
+  try {
+    const { date, status } = req.query;
+    const query = {};
+    if (status) query.status = status;
+    if (date) {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      const nextD = new Date(d);
+      nextD.setDate(nextD.getDate() + 1);
+      query.date = { $gte: d, $lt: nextD };
+    }
+
+    const routes = await DeliveryRoute.find(query)
+      .sort({ date: -1, createdAt: -1 })
+      .populate('deliveryPartner', 'displayName phone vehicleType availability')
+      .populate({
+        path: 'deliveries',
+        populate: { path: 'customer', select: 'displayName phone' }
+      });
+
+    res.status(200).json({
+      success: true,
+      data: routes
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const triggerDailyBatchGeneration = async (req, res, next) => {
+  try {
+    const { targetDate } = req.body || {};
+    const date = targetDate ? new Date(targetDate) : new Date();
+    const io = req.app.get('io');
+    const createdRoutes = await batchDeliveriesIntoRoutes(date, io);
+
+    res.status(200).json({
+      success: true,
+      message: `Batch generation complete. ${createdRoutes.length} route(s) processed.`,
+      data: createdRoutes
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const assignRouteDriver = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { deliveryPartnerId } = req.body;
+
+    const route = await DeliveryRoute.findById(id).populate('deliveries');
+    if (!route) {
+      return res.status(404).json({ success: false, message: 'Route not found' });
+    }
+
+    const prevPartner = route.deliveryPartner;
+    route.deliveryPartner = deliveryPartnerId || null;
+    route.status = deliveryPartnerId ? 'ASSIGNED' : 'CREATED';
+    route.statusHistory = route.statusHistory || [];
+    route.statusHistory.push({
+      status: route.status,
+      timestamp: new Date(),
+      changedBy: 'ADMIN',
+      notes: deliveryPartnerId ? `Admin assigned route to rider ${deliveryPartnerId}` : 'Admin unassigned route'
+    });
+    await route.save();
+
+    if (route.deliveries && route.deliveries.length > 0) {
+      const deliveryIds = route.deliveries.map(d => d._id || d);
+      await Delivery.updateMany(
+        { _id: { $in: deliveryIds } },
+        { 
+          deliveryPartner: deliveryPartnerId || null,
+          deliveryStatus: deliveryPartnerId ? 'ASSIGNED' : 'NOT_ASSIGNED',
+          assignedAt: deliveryPartnerId ? new Date() : null
+        }
+      );
+    }
+
+    if (deliveryPartnerId) {
+      await User.updateOne({ _id: deliveryPartnerId }, { availability: 'BUSY', currentActiveRoute: route._id });
+    }
+    if (prevPartner && prevPartner.toString() !== deliveryPartnerId) {
+      await User.updateOne({ _id: prevPartner }, { availability: 'ONLINE', currentActiveRoute: null });
+    }
+
+    const io = req.app.get('io');
+    if (io && deliveryPartnerId) {
+      io.to(`user_${deliveryPartnerId}`).emit('subscription_route_assigned', {
+        routeId: route._id,
+        routeNumber: route.routeNumber,
+        area: route.area,
+        totalStops: route.totalStops,
+        totalJars: route.totalJarsToDeliver
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: deliveryPartnerId ? 'Driver assigned to route successfully' : 'Driver removed from route',
+      data: route
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getAllDeliveryPartners,
   addDeliveryPartner,
   getDashboardStats,
   getAllOrders,
   updateOrderStatus,
+  acceptAndDispatchOrder,
+  assignOrderDriver,
+  getAllDeliveryRoutes,
+  triggerDailyBatchGeneration,
+  assignRouteDriver,
   getAllCustomers,
   toggleCustomerSuspension,
   getInventory,

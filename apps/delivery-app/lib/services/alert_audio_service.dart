@@ -22,6 +22,11 @@ class AlertAudioService {
     _platform.vibrate(durationMs: durationMs);
   }
 
+  void playOrderAlert() {
+    playTone('order_alert');
+    vibrate(durationMs: 800);
+  }
+
   void speak(String text) {
     _platform.speak(text);
   }

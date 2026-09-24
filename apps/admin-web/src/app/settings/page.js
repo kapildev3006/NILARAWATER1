@@ -14,6 +14,8 @@ const tabs = [
   { id: "notifications", label: "Notifications", icon: Bell },
 ];
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
   const [selectedBannerTab, setSelectedBannerTab] = useState("Water");
@@ -56,7 +58,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/v1/settings');
+        const res = await fetch(`${API_BASE}/settings`);
         const data = await res.json();
         if (data.success && data.data) {
           setStoreSettings(data.data);
@@ -72,7 +74,7 @@ export default function SettingsPage() {
     if (activeTab === 'fees' || activeTab === 'general' || activeTab === 'support' || activeTab === 'delivery_support' || activeTab === 'banners') {
       setIsLoadingSettings(true);
       try {
-        const res = await fetch('http://localhost:5000/api/v1/settings', {
+        const res = await fetch(`${API_BASE}/settings`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(storeSettings)
@@ -103,7 +105,7 @@ export default function SettingsPage() {
     formData.append('images', file);
     
     try {
-      const res = await fetch('http://localhost:5000/api/v1/uploads/images', {
+      const res = await fetch(`${API_BASE}/uploads/images`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('admin_auth_token')}`
@@ -137,7 +139,7 @@ export default function SettingsPage() {
     formData.append('images', file);
     
     try {
-      const res = await fetch('http://localhost:5000/api/v1/uploads/images', {
+      const res = await fetch(`${API_BASE}/uploads/images`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('admin_auth_token')}`
@@ -167,7 +169,7 @@ export default function SettingsPage() {
     formData.append('images', file);
     
     try {
-      const res = await fetch('http://localhost:5000/api/v1/upload/images', {
+      const res = await fetch(`${API_BASE}/upload/images`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('admin_auth_token')}`

@@ -11,46 +11,69 @@ class FcmService {
   factory FcmService() => _instance;
   FcmService._internal();
 
-  static const String baseUrl = 'http://localhost:5000/api/v1';
+  static String get baseUrl => SettingsService.baseUrl;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
 
   Future<void> initPushNotifications() async {
     try {
-      // 1. Request permission for iOS/Web
+      // 1. Request permission for iOS/Android 13+
       NotificationSettings settings = await _messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true,
       );
 
-      if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-        debugPrint('User granted permission');
+      // Configure foreground presentation options
+      await _messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional) {
+        debugPrint('[FCM] Notification permission granted');
       } else {
-        debugPrint('User declined or has not accepted permission');
-        return; // Don't proceed if no permission
+        debugPrint('[FCM] Notification permission declined');
+        return;
       }
 
       // 2. Get the FCM token for this device
       String? token = await _messaging.getToken();
       if (token != null) {
-        debugPrint("FCM Token: $token");
+        debugPrint("[FCM] Registered Device Token: $token");
         await _sendTokenToBackend(token);
       }
 
       // 3. Listen to token refreshes
       _messaging.onTokenRefresh.listen((newToken) {
+        debugPrint("[FCM] Token refreshed: $newToken");
         _sendTokenToBackend(newToken);
       });
 
-      // 4. Listen for foreground messages
+      // 4. Listen for foreground messages (app in use)
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint("[FCM] Received foreground notification: ${message.notification?.title}");
         if (SettingsService().pushNotificationsEnabled.value && message.notification != null) {
-          showTopNotification(message.notification!.title ?? 'New Alert', message.notification!.body ?? '');
+          showTopNotification(
+            message.notification!.title ?? 'Nilara Update',
+            message.notification!.body ?? '',
+          );
         }
       });
 
+      // 5. Handle notification click when app is in background
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        debugPrint("[FCM] App opened from background notification: ${message.data}");
+      });
+
+      // 6. Handle notification click when app was terminated/killed
+      final initialMessage = await _messaging.getInitialMessage();
+      if (initialMessage != null) {
+        debugPrint("[FCM] App launched from terminated notification: ${initialMessage.data}");
+      }
     } catch (e) {
-      debugPrint("FCM Initialization failed: $e");
+      debugPrint("[FCM] Initialization error: $e");
     }
   }
 

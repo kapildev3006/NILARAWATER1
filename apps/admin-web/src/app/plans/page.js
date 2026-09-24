@@ -49,12 +49,10 @@ export default function PlansPage() {
   const saveSettingsToBackend = async (newPlans) => {
     try {
       const updatedSettings = { ...storeSettings, subscriptionPlans: newPlans };
-      const res = await fetch('http://localhost:5000/api/v1/settings', {
+      const data = await fetchWithAuth('/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedSettings)
       });
-      const data = await res.json();
       if (data.success) {
         setStoreSettings(data.data);
         const plansWithIds = (data.data.subscriptionPlans || []).map((p, idx) => ({ ...p, id: idx.toString() }));

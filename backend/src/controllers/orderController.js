@@ -4,6 +4,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Address = require('../models/Address');
 const { recordAudit } = require('../models/AuditLog');
+const { notifyCustomerOrderPlaced } = require('../services/notificationService');
 
 const generateOrderNumber = () => {
   const date = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14); // YYYYMMDDHHMMSS
@@ -102,24 +103,45 @@ const checkout = async (req, res, next) => {
       taxPaise,
       totalPaise,
       paymentMethod,
-      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending', // Online payment handled later
-      status: 'pending',
+      paymentStatus: paymentMethod === 'cod' ? 'PENDING' : 'PAID',
+      orderType: 'NORMAL',
+      orderStatus: 'CONFIRMED',
+      deliveryStatus: 'SEARCHING_DELIVERY_PARTNER',
+      status: 'confirmed',
       deliveryAddressSnapshot,
       customerNotes,
       deliveryTimePref,
-      placedAt: new Date()
+      placedAt: new Date(),
+      statusHistory: [{
+        status: 'CONFIRMED',
+        timestamp: new Date(),
+        changedBy: 'SYSTEM',
+        notes: 'Order placed and stock deducted atomically'
+      }]
     }], { session });
 
     await session.commitTransaction();
     session.endSession();
 
-    // Trigger Socket.IO event
-    req.app.get('io').to(`admin_room`).emit('new_order', order[0]);
-    req.app.get('io').to(`delivery_room`).emit('new_order_available', order[0]);
+    const createdOrder = order[0];
+
+    // Notify admin room for live monitoring
+    req.app.get('io').to('admin_room').emit('new_order', createdOrder);
+
+    // Automatically initiate single-rider dispatch with 30s timeout lock
+    const { startNormalOrderDispatch } = require('../services/dispatchService');
+    startNormalOrderDispatch(createdOrder._id, req.app.get('io')).catch(err => {
+      console.error('Error starting normal order dispatch:', err);
+    });
+
+    // Notify customer via FCM push notification
+    notifyCustomerOrderPlaced(createdOrder).catch(err => {
+      console.error('[OrderController] Error sending order placed push:', err.message);
+    });
 
     res.status(201).json({
       success: true,
-      data: order[0],
+      data: createdOrder,
       requestId: req.requestId
     });
 

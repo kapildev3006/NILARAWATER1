@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Search, Filter, Calendar, SlidersHorizontal, Eye, MoreVertical, Wallet, CreditCard, Banknote, MapPin, Bike, XCircle, Clock } from "lucide-react";
-export default function OrdersTable({ ordersData = [], loading = false, setSelectedOrder, setIsModalOpen, setModalMode }) {
+export default function OrdersTable({ ordersData = [], loading = false, setSelectedOrder, setIsModalOpen, setModalMode, onAcceptAndDispatch, onAssignDriverClick }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [selectedStatuses, setSelectedStatuses] = useState([]);
@@ -274,18 +274,19 @@ export default function OrdersTable({ ordersData = [], loading = false, setSelec
               <th className="py-4 px-3">Delivery</th>
               <th className="py-4 px-3 text-right">Amount</th>
               <th className="py-4 px-3">Date</th>
+              <th className="py-4 px-3 text-right pr-6">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {loading ? (
               <tr>
-                <td colSpan="10" className="py-8 text-center text-slate-500 font-medium">
+                <td colSpan="11" className="py-8 text-center text-slate-500 font-medium">
                   Loading orders...
                 </td>
               </tr>
             ) : filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="10" className="py-8 text-center text-slate-500 font-medium">
+                <td colSpan="11" className="py-8 text-center text-slate-500 font-medium">
                   No orders found matching "{searchQuery}"
                 </td>
               </tr>
@@ -353,7 +354,16 @@ export default function OrdersTable({ ordersData = [], loading = false, setSelec
                     </div>
                     <div className="flex flex-col">
                       <span className={`text-xs font-bold text-${order.delivery.iconColor}-600`}>{order.delivery.status}</span>
-                      <span className="text-[10px] font-medium text-slate-400 mt-0.5 truncate max-w-[100px]">{order.delivery.rider}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAssignDriverClick && onAssignDriverClick(order);
+                        }}
+                        className="text-[10px] font-bold text-teal-600 hover:text-teal-700 hover:underline mt-0.5 truncate max-w-[120px] text-left"
+                        title="Click to assign or change rider"
+                      >
+                        {order.delivery.rider && order.delivery.rider !== 'Unassigned' ? order.delivery.rider : '+ Assign Rider'}
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -365,6 +375,29 @@ export default function OrdersTable({ ordersData = [], loading = false, setSelec
                     <span className="text-xs font-bold text-slate-700">{order.date}</span>
                     <span className="text-[10px] font-medium text-slate-400 mt-0.5">{order.time}</span>
                   </div>
+                </td>
+                <td className="py-4 px-3 text-right pr-6" onClick={e => e.stopPropagation()}>
+                  {order.status === 'Pending' ? (
+                    <button
+                      onClick={() => onAcceptAndDispatch && onAcceptAndDispatch(order.raw?._id || order.id)}
+                      className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm shadow-emerald-600/20"
+                      title="Accept and dispatch order directly to riders"
+                    >
+                      <Bike className="w-3.5 h-3.5 mr-1" />
+                      Dispatch
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        setModalMode("direct_detail");
+                        setIsModalOpen(true);
+                      }}
+                      className="inline-flex items-center px-2.5 py-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xs font-bold transition-colors"
+                    >
+                      View
+                    </button>
+                  )}
                 </td>
               </tr>
               ))
@@ -452,6 +485,19 @@ export default function OrdersTable({ ordersData = [], loading = false, setSelec
                   <span className="text-[10px] font-medium text-slate-500 mt-0.5">{order.time}</span>
                 </div>
               </div>
+
+              {order.status === 'Pending' && onAcceptAndDispatch && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAcceptAndDispatch(order.raw?._id || order.id);
+                  }}
+                  className="w-full mt-2 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm shadow-emerald-600/20"
+                >
+                  <Bike className="w-3.5 h-3.5" />
+                  Accept & Dispatch to All Riders
+                </button>
+              )}
 
             </div>
           ))
