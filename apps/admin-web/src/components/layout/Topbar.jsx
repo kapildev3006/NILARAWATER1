@@ -40,7 +40,7 @@ export default function Topbar() {
   const rightIconsRef = useRef(null);
   const router = useRouter();
   const { setIsOpen } = useSidebar();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const fetchNotifications = async () => {
     try {
@@ -400,20 +400,20 @@ export default function Topbar() {
             className="flex items-center space-x-3 hover:opacity-80 transition-opacity ml-1 sm:ml-0"
           >
             <img 
-              src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=e2e8f0" 
-              alt="Admin" 
-              className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200"
+              src={user?.photoUrl || "https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=e2e8f0"} 
+              alt={user?.displayName || "Admin"} 
+              className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 object-cover"
             />
             <div className="text-left hidden sm:block">
-              <p className="text-sm font-bold text-slate-800 leading-tight">Admin User</p>
-              <p className="text-xs font-medium text-slate-500">Super Admin</p>
+              <p className="text-sm font-bold text-slate-800 leading-tight">{user?.displayName || "Admin User"}</p>
+              <p className="text-xs font-medium text-slate-500">{user?.role ? user.role.toUpperCase() : "ADMIN"}</p>
             </div>
           </button>
           {activeDropdown === 'profile' && (
             <div className="fixed sm:absolute top-[85px] sm:top-full left-4 right-4 sm:left-auto sm:right-0 sm:mt-4 sm:w-56 bg-white rounded-2xl shadow-[0_10px_40px_rgb(0,0,0,0.1)] border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top sm:origin-top-right">
               <div className="p-4 border-b border-slate-100 bg-slate-50 sm:hidden">
-                <p className="text-sm font-bold text-slate-800">Admin User</p>
-                <p className="text-xs font-medium text-slate-500">Super Admin</p>
+                <p className="text-sm font-bold text-slate-800">{user?.displayName || "Admin User"}</p>
+                <p className="text-xs font-medium text-slate-500">{user?.role ? user.role.toUpperCase() : "ADMIN"}</p>
               </div>
               <div className="p-2">
                 <div onClick={() => { setActiveDropdown(null); router.push('/profile'); }} className="px-4 py-2.5 hover:bg-slate-50 rounded-xl cursor-pointer text-sm font-semibold text-slate-700 transition-colors">My Profile</div>

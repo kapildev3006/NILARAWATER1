@@ -21,7 +21,7 @@ export default function LiveDeliveriesListModal({ isOpen, onClose, filterType, s
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("adminToken")}`
+          "Authorization": `Bearer ${localStorage.getItem("admin_auth_token") || localStorage.getItem("adminToken")}`
         },
         body: JSON.stringify({
           deliveryId: item.id,

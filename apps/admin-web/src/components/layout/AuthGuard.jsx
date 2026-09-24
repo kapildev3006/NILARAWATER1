@@ -5,9 +5,10 @@ import { useAuth } from "@/context/AuthContext";
 import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
+import { Loader2 } from "lucide-react";
 
 export default function AuthGuard({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isInitializing } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
@@ -19,20 +20,38 @@ export default function AuthGuard({ children }) {
   const isLoginPage = pathname === "/login";
 
   useEffect(() => {
-    if (mounted && !isAuthenticated && !isLoginPage) {
-      router.push("/login");
+    if (mounted && !isInitializing) {
+      if (!isAuthenticated && !isLoginPage) {
+        router.replace("/login");
+      } else if (isAuthenticated && isLoginPage) {
+        router.replace("/");
+      }
     }
-  }, [mounted, isAuthenticated, isLoginPage, router]);
+  }, [mounted, isInitializing, isAuthenticated, isLoginPage, router]);
 
-  // Prevent hydration mismatch or early redirect flashes
-  if (!mounted) return null;
+  // Loading state during initial token validation
+  if (!mounted || isInitializing) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-9 h-9 text-cyan-500 animate-spin" />
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Verifying session...</p>
+        </div>
+      </div>
+    );
+  }
 
+  // Login page access
   if (isLoginPage) {
+    if (isAuthenticated) {
+      return null; // Will redirect to "/"
+    }
     return <>{children}</>;
   }
 
+  // Strict route guarding: never render protected UI without verified authentication
   if (!isAuthenticated) {
-    return null; // Will redirect via useEffect
+    return null; // Will redirect to "/login"
   }
 
   const isFixedPage = Boolean(

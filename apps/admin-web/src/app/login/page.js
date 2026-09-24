@@ -1,18 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Droplets, Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace("/");
+    }
+  }, [isAuthenticated, router]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -32,7 +38,11 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error?.message || "Failed to sign in. Please try again.");
+        throw new Error(data.error?.message || "Failed to sign in. Please check your credentials.");
+      }
+
+      if (!data.data || data.data.role !== "admin") {
+        throw new Error("Access denied. Administrator privileges required.");
       }
 
       // Use the login function from context to set state and redirect
@@ -82,7 +92,8 @@ export default function LoginPage() {
                 type="email" 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@nilara.com"
+                placeholder="admin@example.com"
+                autoComplete="email"
                 className="w-full pl-11 pr-4 py-3.5 bg-white/50 border border-slate-200 rounded-2xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder:text-slate-400"
                 required
               />
@@ -98,6 +109,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="current-password"
                 className="w-full pl-11 pr-4 py-3.5 bg-white/50 border border-slate-200 rounded-2xl text-sm font-medium text-slate-800 focus:outline-none focus:ring-4 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all placeholder:text-slate-400"
                 required
               />
@@ -124,24 +136,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 p-3.5 bg-slate-50/80 backdrop-blur-sm border border-slate-200/80 rounded-2xl flex items-center justify-between">
-          <div className="text-left">
-            <div className="text-[11px] font-bold text-slate-700">Admin Credentials</div>
-            <div className="text-[10px] text-slate-500 font-mono mt-0.5">admin@nilara.com • admin123</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setEmail("admin@nilara.com");
-              setPassword("admin123");
-            }}
-            className="px-3 py-1.5 bg-white hover:bg-cyan-50 border border-slate-200 hover:border-cyan-300 text-cyan-700 text-xs font-bold rounded-xl transition-all shadow-sm active:scale-95"
-          >
-            Auto-fill
-          </button>
-        </div>
-
-        <div className="mt-6 text-center text-xs font-semibold text-slate-400">
+        <div className="mt-8 text-center text-xs font-semibold text-slate-400">
           Secure, authenticated access only.
         </div>
       </div>

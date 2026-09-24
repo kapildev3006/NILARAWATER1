@@ -5,9 +5,13 @@ import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 
 export default function ProfilePage() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState("https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=f8fafc");
+  const [avatarUrl, setAvatarUrl] = useState(user?.photoUrl || "https://api.dicebear.com/7.x/notionists/svg?seed=Admin&backgroundColor=f8fafc");
+
+  const nameParts = (user?.displayName || "Admin User").split(" ");
+  const firstName = nameParts[0] || "Admin";
+  const lastName = nameParts.slice(1).join(" ") || "User";
 
   return (
     <div className="max-w-[1000px] mx-auto pb-10">
@@ -57,10 +61,10 @@ export default function ProfilePage() {
                 />
               </label>
             </div>
-            <h2 className="text-xl font-black text-slate-800 tracking-tight">Admin User</h2>
+            <h2 className="text-xl font-black text-slate-800 tracking-tight">{user?.displayName || "Admin User"}</h2>
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-teal-50 text-teal-700 text-xs font-bold mt-2 border border-teal-100/50">
               <Shield className="w-3 h-3 mr-1.5" />
-              Super Admin
+              {user?.role ? user.role.toUpperCase() : "ADMIN"}
             </span>
           </div>
 
@@ -95,7 +99,8 @@ export default function ProfilePage() {
                   <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
                     type="text" 
-                    defaultValue="Admin" 
+                    key={firstName}
+                    defaultValue={firstName} 
                     disabled={!isEditing}
                     className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-60 transition-all" 
                   />
@@ -107,7 +112,8 @@ export default function ProfilePage() {
                   <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
                     type="text" 
-                    defaultValue="User" 
+                    key={lastName}
+                    defaultValue={lastName} 
                     disabled={!isEditing}
                     className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-60 transition-all" 
                   />
@@ -121,7 +127,8 @@ export default function ProfilePage() {
                 <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
                   type="email" 
-                  defaultValue="admin@nilara.com" 
+                  key={user?.email || "email"}
+                  defaultValue={user?.email || ""} 
                   disabled={!isEditing}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 disabled:opacity-60 transition-all" 
                 />
