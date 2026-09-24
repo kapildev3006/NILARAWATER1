@@ -638,22 +638,41 @@ const addDeliveryPartner = async (req, res, next) => {
 
 const getAllDeliveryPartners = async (req, res, next) => {
   try {
-    const partners = await User.find({ role: 'delivery' })
-      .select('displayName email phone isActive photoUrl createdAt')
-      .sort({ createdAt: -1 });
+    const partners = await User.find({ role: 'delivery' }).sort({ createdAt: -1 }).lean();
 
-    const formattedPartners = partners.map(p => ({
-      id: p._id.toString(),
-      name: p.displayName || 'Unknown Rider',
-      email: p.email || 'N/A',
-      phone: p.phone || 'N/A',
-      avatar: p.photoUrl,
-      status: p.isActive ? 'Active' : 'Suspended',
-      statusColor: p.isActive ? 'teal' : 'red',
-      joinDate: p.createdAt.toISOString().split('T')[0],
-      totalOrders: 0,
-      rating: 5.0,
-      currentStatus: 'Offline'
+    const formattedPartners = await Promise.all(partners.map(async (p) => {
+      const totalDeliveries = await Order.countDocuments({
+        deliveryPartner: p._id,
+        $or: [{ status: 'delivered' }, { deliveryStatus: 'DELIVERED' }]
+      });
+
+      const vehicleType = p.deliveryDetails?.vehicleType || 'Bike';
+      const vehicleNumber = p.deliveryDetails?.vehicleNumber || '';
+      const vehicleLabel = vehicleNumber ? `${vehicleType} (${vehicleNumber})` : vehicleType;
+
+      return {
+        id: p._id.toString(),
+        name: p.displayName || 'Delivery Partner',
+        email: p.email || 'N/A',
+        phone: p.phone || 'N/A',
+        avatar: p.photoUrl || '',
+        status: p.isActive ? 'Active' : 'Suspended',
+        statusColor: p.isActive ? 'teal' : 'red',
+        availability: p.availability || 'ONLINE',
+        joinDate: p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : 'N/A',
+        totalDeliveries: totalDeliveries,
+        totalOrders: totalDeliveries,
+        rating: 5.0,
+        walletBalance: p.walletBalance || 0,
+        dob: p.dob || 'N/A',
+        address: p.address || 'N/A',
+        emergencyContact: p.emergencyContact || 'N/A',
+        vehicle: vehicleLabel,
+        vehicleType: vehicleType,
+        vehicleNumber: vehicleNumber,
+        deliveryDetails: p.deliveryDetails || {},
+        onboardingComplete: !!p.onboardingComplete
+      };
     }));
 
     res.status(200).json({ success: true, data: formattedPartners });
