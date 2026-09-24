@@ -10,19 +10,19 @@ const mongoose = require('mongoose');
 
 // Configure Source Cloudinary
 const sourceConfig = {
-  cloud_name: 'xkzptzzq',
-  api_key: '912597643772522',
-  api_secret: 'fhEsNWI0jtW3m5jBL7QvIdPmuL0'
+  cloud_name: process.env.SOURCE_CLOUDINARY_CLOUD_NAME || '',
+  api_key: process.env.SOURCE_CLOUDINARY_API_KEY || '',
+  api_secret: process.env.SOURCE_CLOUDINARY_API_SECRET || ''
 };
 
 // Configure Target Cloudinary
 const targetConfig = {
-  cloud_name: 'dwsdxem8w',
-  api_key: '615526122419916',
-  api_secret: 'pFdhPSJMmtmDP8yFULch-TgP3LE'
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || '',
+  api_key: process.env.CLOUDINARY_API_KEY || '',
+  api_secret: process.env.CLOUDINARY_API_SECRET || ''
 };
 
-const MONGO_URI = 'mongodb+srv://kdev7830_db_user:mqmKcoezAW6gFpBe@nilara.vsuabub.mongodb.net/?appName=NILARA';
+const MONGO_URI = process.env.MONGO_URI || '';
 
 // Fetch all resources across all resource types (image, raw, video)
 async function fetchAllSourceResources() {

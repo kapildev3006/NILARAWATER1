@@ -1,16 +1,14 @@
 /**
  * NILARA MongoDB Atlas Migration Script
  * 
- * Transfers all collections, documents, and indexes from:
- * Source: mongodb+srv://cyberlimcare_db_user:...@nilara.jcia1cx.mongodb.net/?appName=Nilara
- * Target: mongodb+srv://kdev7830_db_user:...@nilara.vsuabub.mongodb.net/?appName=NILARA
+ * Transfers all collections, documents, and indexes from Source to Target cluster.
  */
 
 const mongoose = require('mongoose');
 const { MongoClient } = mongoose.mongo;
 
-const SOURCE_URI = 'mongodb+srv://cyberlimcare_db_user:bfODqSnubHeEbeY8@nilara.jcia1cx.mongodb.net/?appName=Nilara';
-const TARGET_URI = 'mongodb+srv://kdev7830_db_user:mqmKcoezAW6gFpBe@nilara.vsuabub.mongodb.net/?appName=NILARA';
+const SOURCE_URI = process.env.SOURCE_MONGO_URI || '';
+const TARGET_URI = process.env.TARGET_MONGO_URI || process.env.MONGO_URI || '';
 
 async function migrate() {
   console.log('====================================================');
