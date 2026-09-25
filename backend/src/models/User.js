@@ -114,7 +114,12 @@ const userSchema = new mongoose.Schema({
       alertTone: { type: String, default: 'Loud Ring' },
       soundVolume: { type: Number, default: 85 },
       vibrateOnAlert: { type: Boolean, default: true }
-    }
+    },
+    isOnline: { type: Boolean, default: true },
+    offlineUntil: { type: Date, default: null },
+    offlineOption: { type: String, default: null },
+    currentDutyLogId: { type: mongoose.Schema.Types.ObjectId, ref: 'DutyLog', default: null },
+    lastStatusChangedAt: { type: Date, default: Date.now }
   },
   fcmTokens: [{
     type: String,

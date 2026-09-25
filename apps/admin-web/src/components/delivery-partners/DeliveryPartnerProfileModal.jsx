@@ -1,17 +1,40 @@
 "use client";
 
-import { useEffect } from "react";
-import { X, ArrowLeft, Star, Phone, Activity, Mail, Truck, ShieldCheck, CreditCard, ExternalLink, User } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, ArrowLeft, Star, Phone, Activity, Mail, Truck, ShieldCheck, CreditCard, ExternalLink, User, Clock, RefreshCw, Calendar, CheckCircle2 } from "lucide-react";
+import { fetchWithAuth } from "@/lib/api";
 
 export default function DeliveryPartnerProfileModal({ isOpen, onClose, partnerQuery }) {
+  const [dutyData, setDutyData] = useState(null);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      if (partnerQuery?.id) {
+        loadDutyLogs();
+      }
     } else {
       document.body.style.overflow = 'unset';
+      setDutyData(null);
     }
     return () => { document.body.style.overflow = 'unset'; };
-  }, [isOpen]);
+  }, [isOpen, partnerQuery?.id]);
+
+  const loadDutyLogs = async () => {
+    if (!partnerQuery?.id) return;
+    setIsLoadingLogs(true);
+    try {
+      const res = await fetchWithAuth(`/admin/delivery-partners/${partnerQuery.id}/duty-logs`);
+      if (res && res.success) {
+        setDutyData(res.data);
+      }
+    } catch (err) {
+      console.error("Failed to load partner duty logs:", err);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
 
   if (!isOpen || !partnerQuery) return null;
 
@@ -83,13 +106,17 @@ export default function DeliveryPartnerProfileModal({ isOpen, onClose, partnerQu
             </div>
 
             <div className="flex flex-col sm:items-end gap-1.5">
-              <span className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold ${
-                item.availability === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' :
-                item.availability === 'BUSY' ? 'bg-amber-100 text-amber-800' :
-                'bg-slate-200 text-slate-700'
+              <span className={`inline-flex items-center px-3.5 py-1.5 rounded-xl text-xs font-bold ${
+                (dutyData ? dutyData.isOnline : (item.isOnline !== false))
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : 'bg-amber-100 text-amber-900 border border-amber-300'
               }`}>
-                <span className={`w-2 h-2 rounded-full mr-2 ${item.availability === 'ONLINE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-                {item.availability || 'ONLINE'}
+                <span className={`w-2.5 h-2.5 rounded-full mr-2 ${(dutyData ? dutyData.isOnline : (item.isOnline !== false)) ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                {(dutyData ? dutyData.isOnline : (item.isOnline !== false))
+                  ? 'ONLINE • ON DUTY'
+                  : ((dutyData?.offlineUntil || item.offlineUntil)
+                    ? `OFFLINE • Until ${new Date(dutyData?.offlineUntil || item.offlineUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    : 'OFFLINE • UNTIL CHANGED')}
               </span>
               <span className="text-[11px] font-semibold text-slate-400">
                 Joined: {item.joinDate}
@@ -292,6 +319,116 @@ export default function DeliveryPartnerProfileModal({ isOpen, onClose, partnerQu
               <div className="p-3 bg-slate-50/60 rounded-xl border border-slate-100">
                 <p className="text-[10px] font-bold text-slate-400 uppercase">Payout Mode</p>
                 <p className="font-bold text-slate-800 mt-0.5">{bank.payoutMode || 'Bank Transfer'}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Duty & Working Hours Logs */}
+          <div className="border border-slate-100 rounded-2xl p-5 bg-white shadow-sm space-y-4">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-teal-600" /> Duty & Working Hours Logs
+              </h4>
+              <button 
+                onClick={loadDutyLogs}
+                disabled={isLoadingLogs}
+                className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} /> Refresh Logs
+              </button>
+            </div>
+
+            {/* Metrics Row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-100 rounded-xl">
+                <p className="text-[10px] font-bold text-emerald-700 uppercase">Working Hours Today</p>
+                <p className="text-lg font-black text-emerald-900 mt-0.5">
+                  {dutyData?.metrics?.onlineHoursFormatted || '0h 0m'}
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-amber-50/70 border border-amber-100 rounded-xl">
+                <p className="text-[10px] font-bold text-amber-700 uppercase">Breaks Today</p>
+                <p className="text-lg font-black text-amber-900 mt-0.5">
+                  {dutyData?.metrics?.offlineHoursFormatted || '0h 0m'}
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Duty Shifts Today</p>
+                <p className="text-lg font-black text-slate-800 mt-0.5">
+                  {dutyData?.metrics?.totalShiftsToday ?? 0}
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Current Schedule</p>
+                <p className="text-xs font-black text-slate-800 mt-1 truncate">
+                  {dutyData?.offlineOption ? dutyData.offlineOption.replace(/_/g, ' ') : ((dutyData ? dutyData.isOnline : (item.isOnline !== false)) ? 'Active Online' : 'Offline')}
+                </p>
+              </div>
+            </div>
+
+            {/* Logs Table */}
+            <div className="border border-slate-100 rounded-xl overflow-hidden">
+              <div className="max-h-64 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-400 font-bold uppercase text-[10px] sticky top-0 border-b border-slate-100">
+                    <tr>
+                      <th className="py-2.5 px-3">Status</th>
+                      <th className="py-2.5 px-3">Started At</th>
+                      <th className="py-2.5 px-3">Ended At</th>
+                      <th className="py-2.5 px-3">Duration</th>
+                      <th className="py-2.5 px-3">Mode / Break Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                    {dutyData?.logs && dutyData.logs.length > 0 ? (
+                      dutyData.logs.map((log) => {
+                        const isOnlineLog = log.status === 'ONLINE';
+                        const startDate = new Date(log.startedAt);
+                        const endDate = log.endedAt ? new Date(log.endedAt) : null;
+                        const durationMins = log.durationMinutes || (endDate ? Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 60000)) : 0);
+                        const durationFormatted = durationMins > 0 ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m` : 'In progress';
+
+                        return (
+                          <tr key={log._id || log.startedAt} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="py-2 px-3">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                isOnlineLog ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isOnlineLog ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                {log.status}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 font-mono text-[11px]">
+                              {startDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}, {startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="py-2 px-3 text-slate-600 font-mono text-[11px]">
+                              {endDate ? (
+                                `${endDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                              ) : (
+                                <span className="text-teal-600 font-bold">Active Now</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-800">
+                              {durationFormatted}
+                            </td>
+                            <td className="py-2 px-3 text-slate-500 text-[11px]">
+                              {log.durationOption ? log.durationOption.replace(/_/g, ' ') : (isOnlineLog ? 'Normal Duty' : 'Break')}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-slate-400 font-medium">
+                          {isLoadingLogs ? 'Loading duty session logs...' : 'No duty logs recorded yet for this partner.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

@@ -98,12 +98,18 @@ export default function DeliveryPartnersListModal({ isOpen, onClose, filterType,
 
               <div className="flex flex-col sm:items-end gap-1.5">
                 <span className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold ${
-                  item.availability === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' :
-                  item.availability === 'BUSY' ? 'bg-amber-100 text-amber-800' :
-                  'bg-slate-200 text-slate-700'
+                  item.isOnline !== false
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                    : item.availability === 'BUSY'
+                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                    : 'bg-amber-50 text-amber-900 border border-amber-200'
                 }`}>
-                  <span className={`w-2 h-2 rounded-full mr-2 ${item.availability === 'ONLINE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-                  {item.availability || 'ONLINE'}
+                  <span className={`w-2 h-2 rounded-full mr-2 ${item.isOnline !== false ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                  {item.isOnline !== false
+                    ? 'ONLINE' 
+                    : (item.offlineUntil
+                      ? `OFFLINE (Until ${new Date(item.offlineUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+                      : 'OFFLINE')}
                 </span>
                 <span className="text-[11px] font-semibold text-slate-400">
                   Joined: {item.joinDate}

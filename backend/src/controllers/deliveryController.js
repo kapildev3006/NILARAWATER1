@@ -4,6 +4,7 @@ const DeliveryRoute = require('../models/DeliveryRoute');
 const Subscription = require('../models/Subscription');
 const Transaction = require('../models/Transaction');
 const User = require('../models/User');
+const DutyLog = require('../models/DutyLog');
 const { evaluateIncentivesForPartner } = require('./incentiveController');
 const { acceptNormalOrder, rejectNormalOrder } = require('../services/dispatchService');
 const { batchDeliveriesIntoRoutes } = require('../services/subscriptionBatchService');
@@ -1173,6 +1174,198 @@ const updateRouteStopStatus = async (req, res, next) => {
   }
 };
 
+const updateDutyStatus = async (req, res, next) => {
+  try {
+    const partnerId = req.auth.userId;
+    const { isOnline, durationMinutes, option, notes } = req.body;
+
+    const user = await User.findById(partnerId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Delivery partner not found' });
+    }
+
+    const now = new Date();
+    user.deliveryDetails = user.deliveryDetails || {};
+
+    let offlineUntilDate = null;
+    if (!isOnline && durationMinutes && Number(durationMinutes) > 0) {
+      offlineUntilDate = new Date(now.getTime() + Number(durationMinutes) * 60000);
+    }
+
+    // 1. Close current open duty log if exists
+    if (user.deliveryDetails.currentDutyLogId) {
+      const activeLog = await DutyLog.findById(user.deliveryDetails.currentDutyLogId);
+      if (activeLog && !activeLog.endedAt) {
+        activeLog.endedAt = now;
+        const diffMs = now.getTime() - new Date(activeLog.startedAt).getTime();
+        activeLog.durationMinutes = Math.max(1, Math.round(diffMs / 60000));
+        await activeLog.save();
+      }
+    }
+
+    // 2. Create new DutyLog entry
+    const newStatus = isOnline ? 'ONLINE' : 'OFFLINE';
+    let durationOpt = option;
+    if (!durationOpt) {
+      if (isOnline) {
+        durationOpt = 'NORMAL_SHIFT';
+      } else if (durationMinutes) {
+        durationOpt = `${durationMinutes}_MINUTES`;
+      } else {
+        durationOpt = 'UNTIL_CHANGED';
+      }
+    }
+
+    const newLog = await DutyLog.create({
+      deliveryPartner: user._id,
+      status: newStatus,
+      startedAt: now,
+      offlineUntil: offlineUntilDate,
+      durationOption: durationOpt,
+      notes: notes || ''
+    });
+
+    // 3. Update User document
+    user.availability = isOnline ? 'ONLINE' : 'OFFLINE';
+    user.deliveryDetails.isOnline = Boolean(isOnline);
+    user.deliveryDetails.offlineUntil = offlineUntilDate;
+    user.deliveryDetails.offlineOption = durationOpt;
+    user.deliveryDetails.currentDutyLogId = newLog._id;
+    user.deliveryDetails.lastStatusChangedAt = now;
+
+    await user.save();
+
+    // 4. Emit real-time status change to admin_room and user's socket room
+    const io = req.app.get('io');
+    if (io) {
+      const payload = {
+        partnerId: user._id.toString(),
+        name: user.displayName || 'Delivery Partner',
+        phone: user.phone,
+        isOnline: Boolean(isOnline),
+        availability: user.availability,
+        offlineUntil: offlineUntilDate,
+        offlineOption: durationOpt,
+        lastStatusChangedAt: now
+      };
+      io.to('admin_room').emit('rider_status_changed', payload);
+      io.to(`user_${user._id}`).emit('duty_status_updated', payload);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Duty status updated to ${newStatus}`,
+      data: {
+        isOnline: Boolean(isOnline),
+        availability: user.availability,
+        offlineUntil: offlineUntilDate,
+        offlineOption: durationOpt,
+        lastStatusChangedAt: now,
+        currentDutyLogId: newLog._id
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getDutyStatus = async (req, res, next) => {
+  try {
+    const partnerId = req.auth.userId;
+    const user = await User.findById(partnerId).select('availability deliveryDetails displayName phone');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Delivery partner not found' });
+    }
+
+    const details = user.deliveryDetails || {};
+    let isOnline = details.isOnline !== undefined ? details.isOnline : (user.availability === 'ONLINE');
+    const offlineUntil = details.offlineUntil;
+    const now = new Date();
+
+    // Check if scheduled offline time has expired
+    if (!isOnline && offlineUntil && new Date(offlineUntil) <= now) {
+      // Auto-expire offline break and restore ONLINE
+      isOnline = true;
+      user.availability = 'ONLINE';
+      details.isOnline = true;
+      details.offlineUntil = null;
+      details.offlineOption = 'NORMAL_SHIFT';
+      details.lastStatusChangedAt = now;
+
+      // Close offline log & open online log
+      if (details.currentDutyLogId) {
+        const activeLog = await DutyLog.findById(details.currentDutyLogId);
+        if (activeLog && !activeLog.endedAt) {
+          activeLog.endedAt = now;
+          const diffMs = now.getTime() - new Date(activeLog.startedAt).getTime();
+          activeLog.durationMinutes = Math.max(1, Math.round(diffMs / 60000));
+          await activeLog.save();
+        }
+      }
+
+      const newLog = await DutyLog.create({
+        deliveryPartner: user._id,
+        status: 'ONLINE',
+        startedAt: now,
+        durationOption: 'NORMAL_SHIFT',
+        notes: 'Auto-resumed after scheduled offline duration expired'
+      });
+      details.currentDutyLogId = newLog._id;
+      await user.save();
+
+      const io = req.app.get('io');
+      if (io) {
+        io.to('admin_room').emit('rider_status_changed', {
+          partnerId: user._id.toString(),
+          name: user.displayName || 'Delivery Partner',
+          isOnline: true,
+          availability: 'ONLINE',
+          offlineUntil: null,
+          offlineOption: 'NORMAL_SHIFT',
+          lastStatusChangedAt: now
+        });
+      }
+    }
+
+    let remainingMinutes = 0;
+    if (!isOnline && offlineUntil && new Date(offlineUntil) > now) {
+      remainingMinutes = Math.ceil((new Date(offlineUntil).getTime() - now.getTime()) / 60000);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        isOnline,
+        availability: user.availability,
+        offlineUntil: details.offlineUntil,
+        offlineOption: details.offlineOption,
+        remainingMinutes,
+        lastStatusChangedAt: details.lastStatusChangedAt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const getMyDutyLogs = async (req, res, next) => {
+  try {
+    const partnerId = req.auth.userId;
+    const limit = Math.min(100, parseInt(req.query.limit) || 30);
+    const logs = await DutyLog.find({ deliveryPartner: partnerId })
+      .sort({ startedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      data: logs
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   updateProfile,
   completeOnboarding,
@@ -1193,6 +1386,9 @@ module.exports = {
   markCustomerUnavailable,
   getMyRoutes,
   startRoute,
-  updateRouteStopStatus
+  updateRouteStopStatus,
+  updateDutyStatus,
+  getDutyStatus,
+  getMyDutyLogs
 };
 

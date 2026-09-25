@@ -23,6 +23,9 @@ class DeliveryService {
   final ValueNotifier<Map<String, dynamic>> todaysSummary = ValueNotifier({'total': 0, 'completed': 0, 'pending': 0});
   final ValueNotifier<Map<String, dynamic>?> activeOrder = ValueNotifier(null);
   final ValueNotifier<bool> isOnline = ValueNotifier(true);
+  final ValueNotifier<DateTime?> offlineUntil = ValueNotifier(null);
+  final ValueNotifier<String?> offlineOption = ValueNotifier(null);
+  final ValueNotifier<int> remainingOfflineMinutes = ValueNotifier(0);
   final ValueNotifier<Map<String, dynamic>?> latestIncomingOrder = ValueNotifier(null);
   final ValueNotifier<String?> orderClaimedAlert = ValueNotifier(null);
 
@@ -170,6 +173,19 @@ class DeliveryService {
       WalletService().fetchWalletData();
     });
 
+    _socket!.on('duty_status_updated', (data) {
+      debugPrint('Duty status updated from server: $data');
+      if (data is Map) {
+        isOnline.value = data['isOnline'] ?? true;
+        if (data['offlineUntil'] != null) {
+          offlineUntil.value = DateTime.tryParse(data['offlineUntil']);
+        } else {
+          offlineUntil.value = null;
+        }
+        offlineOption.value = data['offlineOption'];
+      }
+    });
+
     _socket!.onDisconnect((_) {
       debugPrint('Delivery Socket Disconnected');
     });
@@ -178,6 +194,89 @@ class DeliveryService {
   void disconnectSocket() {
     _socket?.disconnect();
     _socket = null;
+  }
+
+  Future<void> fetchDutyStatus() async {
+    try {
+      final token = await UserService().getFreshToken();
+      if (token == null) return;
+
+      final res = await http.get(
+        Uri.parse('$baseUrl/delivery/duty-status'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body)['data'];
+        if (data != null) {
+          isOnline.value = data['isOnline'] ?? true;
+          if (data['offlineUntil'] != null) {
+            offlineUntil.value = DateTime.tryParse(data['offlineUntil']);
+          } else {
+            offlineUntil.value = null;
+          }
+          offlineOption.value = data['offlineOption'];
+          remainingOfflineMinutes.value = data['remainingMinutes'] ?? 0;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching duty status: $e');
+    }
+  }
+
+  Future<bool> updateDutyStatus({
+    required bool online,
+    int? durationMinutes,
+    String? option,
+    String? notes,
+  }) async {
+    try {
+      final token = await UserService().getFreshToken();
+      if (token == null) return false;
+
+      final Map<String, dynamic> body = {
+        'isOnline': online,
+      };
+      if (durationMinutes != null) body['durationMinutes'] = durationMinutes;
+      if (option != null) body['option'] = option;
+      if (notes != null) body['notes'] = notes;
+
+      final res = await http.patch(
+        Uri.parse('$baseUrl/delivery/duty-status'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body)['data'];
+        isOnline.value = online;
+        if (data != null && data['offlineUntil'] != null) {
+          offlineUntil.value = DateTime.tryParse(data['offlineUntil']);
+        } else {
+          offlineUntil.value = null;
+        }
+        offlineOption.value = data != null ? data['offlineOption'] : option;
+
+        if (online) {
+          initSocket();
+          fetchAvailableOrders();
+          fetchTodaysDeliveries();
+        } else {
+          latestIncomingOrder.value = null;
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error updating duty status: $e');
+      return false;
+    }
   }
 
   Future<void> fetchAvailableOrders() async {

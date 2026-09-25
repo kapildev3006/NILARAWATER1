@@ -113,13 +113,33 @@ const dispatchToNextCandidate = async (orderIdStr, io) => {
     return;
   }
 
-  // Find candidate delivery partners
+  // Auto-restore any delivery partners whose scheduled offline timer has expired
+  const now = new Date();
+  await User.updateMany(
+    {
+      role: 'delivery',
+      availability: 'OFFLINE',
+      'deliveryDetails.offlineUntil': { $ne: null, $lte: now }
+    },
+    {
+      $set: {
+        availability: 'ONLINE',
+        'deliveryDetails.isOnline': true,
+        'deliveryDetails.offlineUntil': null,
+        'deliveryDetails.offlineOption': 'NORMAL_SHIFT',
+        'deliveryDetails.lastStatusChangedAt': now
+      }
+    }
+  );
+
+  // Find candidate delivery partners strictly online
   const attemptedArray = Array.from(queue.attemptedRiders);
   const candidates = await User.find({
     role: 'delivery',
     isActive: true,
     onboardingComplete: true,
     availability: 'ONLINE',
+    'deliveryDetails.isOnline': { $ne: false },
     currentActiveDelivery: null,
     _id: { $nin: attemptedArray }
   })

@@ -17,7 +17,8 @@ const {
   getDeliverySchedule, 
   markDeliveryDelivered, 
   addDeliveryPartner, 
-  getAllDeliveryPartners 
+  getAllDeliveryPartners,
+  getPartnerDutyLogs
 } = require('../controllers/adminController');
 const reviewController = require('../controllers/reviewController');
 const { requireAuth } = require('../middlewares/authMiddleware');
@@ -64,6 +65,7 @@ router.get('/payments', getPayments);
 // Delivery Partners
 router.post('/delivery-partners', validate({ body: createDeliveryPartnerSchema }), addDeliveryPartner);
 router.get('/delivery-partners', getAllDeliveryPartners);
+router.get('/delivery-partners/:id/duty-logs', validate({ params: objectIdParamSchema }), getPartnerDutyLogs);
 
 // Incentives & Campaigns
 const incentiveController = require('../controllers/incentiveController');

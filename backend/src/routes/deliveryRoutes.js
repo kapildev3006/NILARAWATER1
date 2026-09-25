@@ -24,7 +24,10 @@ const {
   markCustomerUnavailable,
   getMyRoutes,
   startRoute,
-  updateRouteStopStatus
+  updateRouteStopStatus,
+  updateDutyStatus,
+  getDutyStatus,
+  getMyDutyLogs
 } = require('../controllers/deliveryController');
 const { getWalletData, requestPayout } = require('../controllers/walletController');
 const { requireAuth, requireOnboarding } = require('../middlewares/authMiddleware');
@@ -57,6 +60,11 @@ router.put('/profile', updateProfile);
 router.get('/preferences', getPreferences);
 router.put('/preferences', validate({ body: updatePreferencesSchema }), updatePreferences);
 router.post('/rc', upload.single('rcImage'), uploadRC);
+
+// Duty Status & Logs
+router.patch('/duty-status', requireOnboarding, updateDutyStatus);
+router.get('/duty-status', requireOnboarding, getDutyStatus);
+router.get('/duty-logs', requireOnboarding, getMyDutyLogs);
 router.post('/onboarding', upload.fields([
   { name: 'profileImage', maxCount: 1 },
   { name: 'aadharImage', maxCount: 1 },

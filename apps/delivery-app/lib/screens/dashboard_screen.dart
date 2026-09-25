@@ -29,7 +29,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    DeliveryService().isOnline.value = _isOnline;
+    _isOnline = DeliveryService().isOnline.value;
+    DeliveryService().isOnline.addListener(_onDutyStatusChanged);
+    DeliveryService().fetchDutyStatus();
     DeliveryService().initSocket();
     DeliveryService().fetchAvailableOrders();
     DeliveryService().fetchTodaysDeliveries();
@@ -37,10 +39,328 @@ class _DashboardScreenState extends State<DashboardScreen> {
     DeliveryService().latestIncomingOrder.addListener(_handleIncomingOrderAlert);
   }
 
+  void _onDutyStatusChanged() {
+    if (mounted) {
+      setState(() {
+        _isOnline = DeliveryService().isOnline.value;
+      });
+    }
+  }
+
   @override
   void dispose() {
+    DeliveryService().isOnline.removeListener(_onDutyStatusChanged);
     DeliveryService().latestIncomingOrder.removeListener(_handleIncomingOrderAlert);
     super.dispose();
+  }
+
+  Future<void> _goOnline() async {
+    final success = await DeliveryService().updateDutyStatus(online: true);
+    if (success && mounted) {
+      setState(() {
+        _isOnline = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "You are now ONLINE. You will receive new order alerts.",
+            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w500),
+          ),
+          backgroundColor: const Color(0xFF1E9C1C),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _showGoOfflineModal() {
+    String selectedOption = '1_HOUR';
+    int? selectedMinutes = 60;
+
+    final List<Map<String, dynamic>> options = [
+      {'id': '30_MINUTES', 'minutes': 30, 'title': '30 Minutes', 'desc': 'Quick coffee or tea break', 'icon': Icons.timer_outlined},
+      {'id': '1_HOUR', 'minutes': 60, 'title': '1 Hour', 'desc': 'Lunch or meal break', 'icon': Icons.restaurant_outlined},
+      {'id': '2_HOURS', 'minutes': 120, 'title': '2 Hours', 'desc': 'Rest or vehicle maintenance', 'icon': Icons.two_wheeler_outlined},
+      {'id': '4_HOURS', 'minutes': 240, 'title': '4 Hours', 'desc': 'Long rest or shift interval', 'icon': Icons.bedtime_outlined},
+      {'id': 'UNTIL_NEXT_SHIFT', 'minutes': 720, 'title': 'Until Next Shift / Tomorrow', 'desc': 'End duty for today', 'icon': Icons.wb_sunny_outlined},
+      {'id': 'UNTIL_CHANGED', 'minutes': null, 'title': 'Until I turn it back on', 'desc': 'Indefinite offline until manually resumed', 'icon': Icons.pause_circle_outline_rounded},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).padding.bottom + 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.power_settings_new_rounded, color: Colors.red, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Go Offline",
+                          style: GoogleFonts.outfit(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        Text(
+                          "For how much time do you want to be offline?",
+                          style: GoogleFonts.outfit(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 340),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, idx) {
+                    final opt = options[idx];
+                    final isSelected = selectedOption == opt['id'];
+                    return InkWell(
+                      onTap: () {
+                        setModalState(() {
+                          selectedOption = opt['id'] as String;
+                          selectedMinutes = opt['minutes'] as int?;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.red.shade50.withAlpha(128) : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected ? Colors.red : Colors.grey.shade200,
+                            width: isSelected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              opt['icon'] as IconData,
+                              color: isSelected ? Colors.red : Colors.black54,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    opt['title'] as String,
+                                    style: GoogleFonts.outfit(
+                                      fontSize: 14,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                      color: isSelected ? Colors.red.shade900 : Colors.black87,
+                                    ),
+                                  ),
+                                  Text(
+                                    opt['desc'] as String,
+                                    style: GoogleFonts.outfit(fontSize: 11, color: Colors.black54),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Radio<String>(
+                              value: opt['id'] as String,
+                              groupValue: selectedOption,
+                              activeColor: Colors.red,
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setModalState(() {
+                                    selectedOption = val;
+                                    selectedMinutes = opt['minutes'] as int?;
+                                  });
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    final success = await DeliveryService().updateDutyStatus(
+                      online: false,
+                      durationMinutes: selectedMinutes,
+                      option: selectedOption,
+                    );
+                    if (success && mounted) {
+                      setState(() {
+                        _isOnline = false;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            "You are now OFFLINE. No orders or alerts will be sent.",
+                            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w500),
+                          ),
+                          backgroundColor: Colors.black87,
+                          duration: const Duration(seconds: 3),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  child: Text(
+                    "Confirm Go Offline",
+                    style: GoogleFonts.outfit(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOfflineBanner() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: DeliveryService().isOnline,
+      builder: (context, online, _) {
+        if (online) return const SizedBox.shrink();
+
+        return ValueListenableBuilder<DateTime?>(
+          valueListenable: DeliveryService().offlineUntil,
+          builder: (context, until, _) {
+            String subtitle = "Offline until manually resumed";
+            if (until != null) {
+              final diff = until.difference(DateTime.now());
+              final mins = diff.inMinutes;
+              if (mins > 60) {
+                subtitle = "Offline until ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')} (${mins ~/ 60}h ${mins % 60}m left)";
+              } else if (mins > 0) {
+                subtitle = "Offline until ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')} (${mins}m left)";
+              } else {
+                subtitle = "Scheduled offline duration ended";
+              }
+            }
+
+            return Container(
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.amber.shade300, width: 1),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade100,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.pause_circle_filled_rounded, color: Colors.amber.shade900, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "You are currently OFFLINE",
+                          style: GoogleFonts.outfit(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          style: GoogleFonts.outfit(fontSize: 11, color: Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E9C1C),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _goOnline,
+                    child: Text(
+                      "Go Online",
+                      style: GoogleFonts.outfit(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _handleIncomingOrderAlert() {
@@ -93,26 +413,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             // Online/Offline Toggle
             GestureDetector(
               onTap: () {
-                setState(() {
-                  _isOnline = !_isOnline;
-                  DeliveryService().isOnline.value = _isOnline;
-                  if (_isOnline) {
-                    DeliveryService().initSocket();
-                    DeliveryService().fetchAvailableOrders();
-                    DeliveryService().fetchTodaysDeliveries();
-                  }
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      _isOnline ? "You are now ONLINE for deliveries" : "You are now OFFLINE",
-                      style: GoogleFonts.outfit(color: Colors.white),
-                    ),
-                    backgroundColor: _isOnline ? const Color(0xFF1E9C1C) : Colors.black87,
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                if (_isOnline) {
+                  _showGoOfflineModal();
+                } else {
+                  _goOnline();
+                }
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -173,7 +478,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
       ),
-      body: tabs[_currentIndex],
+      body: Column(
+        children: [
+          _buildOfflineBanner(),
+          Expanded(child: tabs[_currentIndex]),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           border: Border(top: BorderSide(color: Colors.grey.shade200)),

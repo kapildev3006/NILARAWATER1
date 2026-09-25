@@ -219,6 +219,26 @@ const notifyCustomerOrderStatus = async (order, status) => {
 const notifyRiderOrderOffered = async (riderId, order, expiresInSeconds = 30) => {
   if (!riderId || !order) return;
   const riderIdStr = riderId._id ? riderId._id.toString() : riderId.toString();
+
+  // Check if rider is offline before delivering push notification
+  try {
+    const rider = await User.findById(riderIdStr).select('availability deliveryDetails');
+    if (rider) {
+      const details = rider.deliveryDetails || {};
+      let isOnline = details.isOnline !== undefined ? details.isOnline : (rider.availability === 'ONLINE');
+      const now = new Date();
+      if (!isOnline && details.offlineUntil && new Date(details.offlineUntil) <= now) {
+        isOnline = true; // Auto-expired offline period
+      }
+      if (!isOnline) {
+        console.log(`[NotificationService] Rider ${riderIdStr} is currently OFFLINE - suppressing order push alert.`);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error(`[NotificationService] Error checking rider duty status:`, err);
+  }
+
   const orderNumber = order.orderNumber || order._id.toString().slice(-6);
 
   await sendPushNotification({

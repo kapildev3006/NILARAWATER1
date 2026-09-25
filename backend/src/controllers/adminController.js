@@ -7,6 +7,7 @@ const BulkOrder = require('../models/BulkOrder');
 const Subscription = require('../models/Subscription');
 const Delivery = require('../models/Delivery');
 const DeliveryRoute = require('../models/DeliveryRoute');
+const DutyLog = require('../models/DutyLog');
 const { batchDeliveriesIntoRoutes } = require('../services/subscriptionBatchService');
 const { recordAudit } = require('../models/AuditLog');
 const { messaging } = require('../config/firebase');
@@ -650,6 +651,15 @@ const getAllDeliveryPartners = async (req, res, next) => {
       const vehicleNumber = p.deliveryDetails?.vehicleNumber || '';
       const vehicleLabel = vehicleNumber ? `${vehicleType} (${vehicleNumber})` : vehicleType;
 
+      const details = p.deliveryDetails || {};
+      let isOnline = details.isOnline !== undefined ? details.isOnline : (p.availability === 'ONLINE');
+      const offlineUntil = details.offlineUntil;
+      const now = new Date();
+
+      if (!isOnline && offlineUntil && new Date(offlineUntil) <= now) {
+        isOnline = true;
+      }
+
       return {
         id: p._id.toString(),
         name: p.displayName || 'Delivery Partner',
@@ -658,7 +668,11 @@ const getAllDeliveryPartners = async (req, res, next) => {
         avatar: p.photoUrl || '',
         status: p.isActive ? 'Active' : 'Suspended',
         statusColor: p.isActive ? 'teal' : 'red',
-        availability: p.availability || 'ONLINE',
+        availability: isOnline ? 'ONLINE' : 'OFFLINE',
+        isOnline,
+        offlineUntil: details.offlineUntil || null,
+        offlineOption: details.offlineOption || null,
+        lastStatusChangedAt: details.lastStatusChangedAt || null,
         joinDate: p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : 'N/A',
         totalDeliveries: totalDeliveries,
         totalOrders: totalDeliveries,
@@ -677,6 +691,75 @@ const getAllDeliveryPartners = async (req, res, next) => {
 
     res.status(200).json({ success: true, data: formattedPartners });
   } catch (error) { next(error); }
+};
+
+const getPartnerDutyLogs = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const partner = await User.findById(id);
+    if (!partner) {
+      return res.status(404).json({ success: false, message: 'Delivery partner not found' });
+    }
+
+    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const logs = await DutyLog.find({ deliveryPartner: id })
+      .sort({ startedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    // Calculate metrics for today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    let onlineMinutesToday = 0;
+    let offlineMinutesToday = 0;
+    const now = new Date();
+
+    const todayLogs = await DutyLog.find({
+      deliveryPartner: id,
+      startedAt: { $gte: startOfToday }
+    }).sort({ startedAt: 1 }).lean();
+
+    todayLogs.forEach(log => {
+      const logStart = new Date(log.startedAt);
+      const logEnd = log.endedAt ? new Date(log.endedAt) : now;
+      const duration = Math.max(1, Math.round((logEnd.getTime() - logStart.getTime()) / 60000));
+      if (log.status === 'ONLINE') {
+        onlineMinutesToday += duration;
+      } else {
+        offlineMinutesToday += duration;
+      }
+    });
+
+    const details = partner.deliveryDetails || {};
+    let isOnline = details.isOnline !== undefined ? details.isOnline : (partner.availability === 'ONLINE');
+    if (!isOnline && details.offlineUntil && new Date(details.offlineUntil) <= now) {
+      isOnline = true;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        partnerId: partner._id,
+        name: partner.displayName || 'Delivery Partner',
+        isOnline,
+        availability: isOnline ? 'ONLINE' : 'OFFLINE',
+        offlineUntil: details.offlineUntil || null,
+        offlineOption: details.offlineOption || null,
+        lastStatusChangedAt: details.lastStatusChangedAt || null,
+        metrics: {
+          onlineMinutesToday,
+          offlineMinutesToday,
+          onlineHoursFormatted: `${Math.floor(onlineMinutesToday / 60)}h ${onlineMinutesToday % 60}m`,
+          offlineHoursFormatted: `${Math.floor(offlineMinutesToday / 60)}h ${offlineMinutesToday % 60}m`,
+          totalShiftsToday: todayLogs.filter(l => l.status === 'ONLINE').length
+        },
+        logs
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 const acceptAndDispatchOrder = async (req, res, next) => {
@@ -968,6 +1051,7 @@ const assignRouteDriver = async (req, res, next) => {
 
 module.exports = {
   getAllDeliveryPartners,
+  getPartnerDutyLogs,
   addDeliveryPartner,
   getDashboardStats,
   getAllOrders,
