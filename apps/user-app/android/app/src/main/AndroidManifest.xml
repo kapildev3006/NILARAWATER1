@@ -6,10 +6,11 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:label="blinkit_clone"
+        android:label="Nilara"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
         
         <!-- Default FCM notification channel -->
         <meta-data
