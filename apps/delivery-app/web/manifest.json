@@ -1,11 +1,11 @@
 {
-    "name": "blinkit_delivery_app",
-    "short_name": "blinkit_delivery_app",
+    "name": "Nilara Delivery",
+    "short_name": "Nilara Delivery",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#000000",
+    "theme_color": "#1E9C1C",
+    "description": "Nilara Delivery - Rider Partner Application",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -59,20 +59,14 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           children: [
             ScaleTransition(
               scale: _scaleAnimation,
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E9),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF1E9C1C).withValues(alpha: 0.2),
-                      blurRadius: 20,
-                      spreadRadius: 5,
-                    ),
-                  ],
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Image.asset(
+                  'assets/images/delivery_logo.png',
+                  width: 140,
+                  height: 140,
+                  fit: BoxFit.contain,
                 ),
-                child: const Icon(Icons.delivery_dining, size: 80, color: Color(0xFF1E9C1C)),
               ),
             ),
             const SizedBox(height: 24),

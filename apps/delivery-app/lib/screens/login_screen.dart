@@ -95,11 +95,21 @@ class _LoginScreenState extends State<LoginScreen> {
               // Logo & App Name
               Row(
                 children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/images/delivery_logo.png',
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   Text(
                     "Nilara ",
                     style: GoogleFonts.outfit(
                       color: const Color(0xFF1E9C1C),
-                      fontSize: 32,
+                      fontSize: 30,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -107,12 +117,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     "Delivery",
                     style: GoogleFonts.outfit(
                       color: const Color(0xFF8DC63F),
-                      fontSize: 32,
+                      fontSize: 30,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  const Icon(Icons.shopping_bag, color: Color(0xFF1E9C1C), size: 28),
                 ],
               ),
 
