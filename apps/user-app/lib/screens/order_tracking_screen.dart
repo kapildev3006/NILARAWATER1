@@ -30,7 +30,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Future<void> _fetchRoute() async {
     try {
       // OSRM expects coordinates in lon,lat order
-      final String url = 'http://router.project-osrm.org/route/v1/driving/'
+      final String url = 'https://router.project-osrm.org/route/v1/driving/'
           '${_storeLocation.longitude},${_storeLocation.latitude};'
           '${_homeLocation.longitude},${_homeLocation.latitude}'
           '?geometries=geojson';

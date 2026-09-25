@@ -78,12 +78,13 @@ class UserService {
   Future<bool> _syncWithBackend(String idToken) async {
     final urlsToTry = <String>{
       baseUrl,
-      if (EnvConfig.apiUrl.isEmpty) ...[
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
-          'http://10.0.2.2:5000/api/v1',
-          'http://127.0.0.1:5000/api/v1',
-        ],
-      ],
+      'https://nilara-backend-sct7.onrender.com/api/v1',
+      // if (EnvConfig.apiUrl.isEmpty) ...[
+      //   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+      //     'http://10.0.2.2:5000/api/v1',
+      //     'http://127.0.0.1:5000/api/v1',
+      //   ],
+      // ],
     }.toList();
 
     for (final url in urlsToTry) {

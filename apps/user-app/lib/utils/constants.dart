@@ -7,6 +7,7 @@ class Constants {
     if (configured.isNotEmpty) {
       return configured.replaceAll('/api/v1', '');
     }
-    return 'http://localhost:5000';
+    // return 'http://localhost:5000'; // Local fallback
+    return 'https://nilara-backend-sct7.onrender.com';
   }
 }

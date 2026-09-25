@@ -74,7 +74,7 @@ class _ActiveDeliveryScreenState extends State<ActiveDeliveryScreen> {
 
   Future<void> _fetchRoute() async {
     final url =
-        'http://router.project-osrm.org/route/v1/driving/${_storeLocation.longitude},${_storeLocation.latitude};${_customerLocation.longitude},${_customerLocation.latitude}?overview=full&geometries=geojson';
+        'https://router.project-osrm.org/route/v1/driving/${_storeLocation.longitude},${_storeLocation.latitude};${_customerLocation.longitude},${_customerLocation.latitude}?overview=full&geometries=geojson';
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {

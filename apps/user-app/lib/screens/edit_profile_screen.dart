@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../services/user_service.dart';
+import '../utils/env_config.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -89,7 +90,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         final token = await user.getIdToken();
         final bytes = await image.readAsBytes();
 
-        var request = http.MultipartRequest('POST', Uri.parse('http://localhost:5000/api/v1/users/me/avatar'));
+        // Local fallback: Uri.parse('http://localhost:5000/api/v1/users/me/avatar')
+        var request = http.MultipartRequest('POST', Uri.parse('${EnvConfig.apiUrl}/users/me/avatar'));
         request.headers.addAll({
           'Authorization': 'Bearer $token',
         });
@@ -153,8 +155,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (user != null) {
         try {
           final token = await user.getIdToken();
+          // Local fallback: Uri.parse('http://localhost:5000/api/v1/users/me')
           await http.patch(
-            Uri.parse('http://localhost:5000/api/v1/users/me'),
+            Uri.parse('${EnvConfig.apiUrl}/users/me'),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',

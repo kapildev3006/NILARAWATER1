@@ -41,13 +41,15 @@ class EnvConfig {
       'API_URL',
       defaultValue: String.fromEnvironment('API_BASE_URL', defaultValue: ''),
     ),
-    fallback: _env['API_BASE_URL'] ?? 'http://localhost:5000/api/v1',
+    // Local fallback: 'http://localhost:5000/api/v1'
+    fallback: _env['API_BASE_URL'] ?? 'https://nilara-backend-sct7.onrender.com/api/v1',
   );
 
   static String get socketUrl => _get(
     'SOCKET_URL',
     defineValue: const String.fromEnvironment('SOCKET_URL', defaultValue: ''),
-    fallback: apiUrl.replaceAll('/api/v1', ''),
+    // Local fallback: 'http://localhost:5000'
+    fallback: _env['SOCKET_URL'] ?? apiUrl.replaceAll('/api/v1', ''),
   );
 
   // Firebase Configuration (read strictly from env)

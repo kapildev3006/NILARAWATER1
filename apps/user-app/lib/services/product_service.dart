@@ -9,9 +9,10 @@ class ProductService {
   Future<List<ProductModel>> getProducts() async {
     final urlsToTry = <String>{
       '$baseUrl/products',
-      'http://localhost:5000/api/v1/products',
-      'http://10.0.2.2:5000/api/v1/products',
-      'http://192.168.1.33:5000/api/v1/products',
+      'https://nilara-backend-sct7.onrender.com/api/v1/products',
+      // 'http://localhost:5000/api/v1/products',
+      // 'http://10.0.2.2:5000/api/v1/products',
+      // 'http://192.168.1.33:5000/api/v1/products',
     };
 
     for (final url in urlsToTry) {

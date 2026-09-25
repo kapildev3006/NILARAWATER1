@@ -106,11 +106,10 @@ class SettingsService {
 
     final urlsToTry = <String>{
       '$baseUrl/settings',
-      if (EnvConfig.apiUrl.isEmpty) ...[
-        'http://localhost:5000/api/v1/settings',
-        'http://10.0.2.2:5000/api/v1/settings',
-        'http://127.0.0.1:5000/api/v1/settings',
-      ],
+      'https://nilara-backend-sct7.onrender.com/api/v1/settings',
+      // 'http://localhost:5000/api/v1/settings',
+      // 'http://10.0.2.2:5000/api/v1/settings',
+      // 'http://127.0.0.1:5000/api/v1/settings',
     };
 
     for (final urlStr in urlsToTry) {
